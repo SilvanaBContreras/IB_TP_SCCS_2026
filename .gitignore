@@ -6,9 +6,15 @@
 Thumbs.db
 *.html
 *.pdf
-<<<<<<< HEAD
+
+# Datos pesados o descargados
 *.parquet
 *.pkl
-=======
 *.csv
->>>>>>> 384ae594efafdaba0b655bdd86c6401d13d9b8d9
+*.json
+
+# Ignorar todo lo descargado dentro de datos/
+datos/*
+
+# Pero permitir conservar un archivo vacío para que exista la carpeta datos/
+!datos/.gitkeep
