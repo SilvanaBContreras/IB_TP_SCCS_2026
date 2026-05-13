@@ -1,0 +1,575 @@
+---
+title: "Banco Ánfora. Reanálisis bayesiano de un sistema de detección de fraude bajo cambio de distribución por intervención externa"
+author: "Lucas Chicco, Silvana Contreras, Ramiro Santamaría, Sofía Scaiano"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    code_folding: show
+  pdf_document: 
+    latex_engine: lualatex
+subtitle: "Taller Integrador de Inferencia Bayesiana - Maestria en Data Mining (UBA)"
+header-includes:
+  - \usepackage{fvextra}
+  - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+---
+
+```{aclaración}
+
+print("ATENCIÓN: Este .rmd es un EXTRACTO de la práctica 6 para usar como template en caso de resultar útil")
+#quité el ejercicio 2
+#quité explicaciones pedagógicas
+#no toqué código
+
+```
+
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "100%"
+)
+
+library(MASS)
+library(tidyverse)
+library(data.table)
+library(rethinking)
+library(brms)
+library(bayesplot)
+library(scales)
+library(ibUBA)
+
+set.seed(42)
+
+# Paleta del curso
+pal <- ib_palette()
+col_azul    <- unname(pal["primary"])
+col_rojo    <- unname(pal["accent"])
+col_purpura <- unname(pal["purple"])
+col_celeste <- unname(pal["blue"])
+col_verde   <- unname(pal["green"])
+col_gris    <- "#95A5A6"
+```
+
+---
+
+
+## Preparación de los datos
+
+```{r datos-mammals}
+data(mammals)
+dt <- as.data.table(mammals, keep.rownames = "especie")
+
+#Convertivos a escala Log
+dt[, log_body  := log(body)]
+dt[, log_brain := log(brain)]
+dt[, brain_kg  := brain / 1000]
+
+
+# Estandarizamos
+media_log_body <- dt[, mean(log_body)]
+sd_log_body    <- dt[, sd(log_body)]
+dt[, log_body_std := scale(log_body)]
+```
+
+```{r viz-relacion, fig.height=4.5, fig.width=9}
+especies_label <- c("Human", "African elephant", "Little brown bat",
+                    "Mouse", "Chimpanzee", "Cow")
+
+ggplot(dt, aes(x = body, y = brain_kg)) +
+  geom_point(alpha = 0.6, size = 2.5, color = col_azul) +
+  labs(title = "Peso corporal vs. peso cerebral en 62 mamíferos",
+       x = "Peso corporal (kg)", y = "Peso cerebral (kg)") +
+  theme_minimal(base_size = 13)
+
+ggplot(dt, aes(x = body, y = brain_kg)) +
+  geom_point(alpha = 0.6, size = 2.5, color = col_azul) +
+  geom_text(data = dt[especie %in% especies_label],
+            aes(label = especie),
+            size = 3.2, vjust = -0.8, color = col_azul) +
+  scale_x_log10(labels = scales::comma_format(), n.breaks = 5) +
+  scale_y_log10(labels = scales::comma_format(), n.breaks = 5) +
+  labs(title = "Peso corporal vs. peso cerebral en 62 mamíferos",
+       x = "Peso corporal (kg)", y = "Peso cerebral (kg)") +
+  theme_minimal(base_size = 13)
+```
+
+Para ambos métodos, definimos las priors como:
+
+$$\alpha \sim \mathcal{N}(0, 1)$$
+$$\beta \sim \mathcal{N}(0, 1)$$
+$$\sigma \sim \text{Exponential}(1)$$
+## Ajuste con `quap`
+
+```{r quap-mammals}
+m_quap <- quap(
+  alist(
+    log_brain ~ dnorm(mu, sigma),
+    mu <- alpha + beta * log_body_std,
+    alpha ~ dnorm(0, 1),
+    beta ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  data = dt
+)
+
+precis(m_quap, prob = 0.89)
+```
+
+
+## Ajuste con `brms`
+
+```{r brms-mammals}
+m_brms <- brm(
+  formula = log_brain ~ log_body_std,
+  data = dt,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 1), class = Intercept),
+    prior(normal(0, 1), class = b),
+    prior(exponential(1), class = sigma)
+  ),
+  chains = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 420
+)
+```
+
+```{r brms-mammals-summary}
+summary(m_brms)
+```
+
+## Comparación de posteriors
+
+```{r comp-posteriors-setup}
+# muestras_quap <- extract.samples(m_quap, n = 4000)
+# muestras_brms <- as.data.table(as_draws_df(m_brms))
+# 
+# dt_alpha <- rbindlist(list(
+#   data.table(parametro = "alpha", modelo = "quap",
+#              valor = muestras_quap$alpha),
+#   data.table(parametro = "alpha", modelo = "brms",
+#              valor = muestras_brms$b_Intercept)
+# ))
+# 
+# dt_beta <- rbindlist(list(
+#   data.table(parametro = "beta", modelo = "quap",
+#              valor = muestras_quap$beta),
+#   data.table(parametro = "beta", modelo = "brms",
+#              valor = muestras_brms$b_log_body_std)
+# ))
+# 
+# dt_sigma <- rbindlist(list(
+#   data.table(parametro = "sigma", modelo = "quap",
+#              valor = muestras_quap$sigma),
+#   data.table(parametro = "sigma", modelo = "brms",
+#              valor = muestras_brms$sigma)
+# ))
+# 
+# dt_posteriors <- rbindlist(list(dt_alpha, dt_beta, dt_sigma))
+```
+
+```{r comp-posteriors-tabla}
+# resumen <- dt_posteriors[, .(
+#   media = round(mean(valor), 3),
+#   q05   = round(quantile(valor, 0.055), 3),
+#   q95   = round(quantile(valor, 0.945), 3)
+# ), by = .(parametro, modelo)]
+# 
+# cat("=== Comparación de posteriors (media e IC 89%) ===\n")
+# print(resumen[order(parametro, modelo)])
+```
+
+```{r comp-posteriors-plot, fig.height=4, fig.width=11}
+# ggplot(dt_posteriors, aes(x = valor, fill = modelo, color = modelo)) +
+#   geom_density(alpha = 0.35, linewidth = 1.1) +
+#   facet_wrap(~ parametro, scales = "free", ncol = 3) +
+#   scale_fill_manual(values  = c("quap" = col_rojo, "brms" = col_celeste)) +
+#   scale_color_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+#   labs(title    = "Distribuciones posteriores: quap vs. brms",
+#        subtitle = "Las curvas se superponen — la posterior es aproximadamente gaussiana",
+#        x = "Valor del parámetro", y = "Densidad posterior",
+#        fill = "Método", color = "Método") +
+#   theme_minimal(base_size = 13)
+```
+
+
+## Posterior predictive check
+
+Simulamos distribuciones predichas y las comparamos con los datos observados.
+
+```{r ppc-quap, fig.height=4.5, fig.width=9}
+set.seed(42)
+sim_quap <- sim(m_quap, data = dt, n = 500)
+idx_rep  <- sample(500, 50)
+
+dt_obs      <- data.table(log_brain = dt$log_brain)
+dt_ppc_quap <- rbindlist(lapply(idx_rep, function(i) {
+  data.table(log_brain_sim = sim_quap[i, ], rep = i)
+}))
+
+dt_ppc_quap <- rbind(
+  dt[, .(tipo = 'Observado', log_brain)],
+  dt_ppc_quap[, .(tipo = 'Simulado', log_brain = log_brain_sim, rep)],
+  fill = TRUE
+)
+
+dt_ppc_quap %>%
+  ggplot() +
+  geom_density(aes(x = log_brain, group = rep, col = tipo,
+                   alpha = tipo, linewidth = tipo)) +
+  scale_color_manual(values = c(Observado = col_azul,
+                                Simulado = col_rojo)) +
+  scale_alpha_manual(values = c(Observado = 1,
+                                Simulado = 0.05)) +
+  scale_linewidth_manual(values = c(Observado = 1.5,
+                                    Simulado = 0.5)) +
+  labs(title = "PPC quap",
+       subtitle = "Líneas rojas tenues: 50 datasets simulados | Línea azul: datos reales",
+       x = "log(peso cerebral)", y = "Densidad", col = '') +
+  theme_minimal(base_size = 13) +
+  guides(alpha = "none", linewidth = "none")
+```
+
+```{r ppc-brms, fig.height=4.5, fig.width=9}
+pp_check(m_brms, ndraws = 50, type = "dens_overlay") +
+  labs(title    = "PPC nativo — brms",
+       subtitle = "Líneas tenues: 50 datasets simulados | Línea oscura: datos reales") +
+  theme_minimal(base_size = 13)
+```
+
+## Bandas de credibilidad en escala real
+
+Construimos una grilla de pesos corporales, obtenemos las predicciones de la media posterior con ambos métodos y graficamos las bandas de credibilidad al 89% en escala original (kg).
+
+```{r bandas-credibilidad, fig.height=5, fig.width=10}
+grilla <- data.table(
+  body = seq(min(dt$body), max(dt$body), length.out = 400)
+)
+grilla[, log_body := log(body)]
+grilla[, log_body_std := (log_body - media_log_body) / sd_log_body]
+
+# --- quap: link() da la distribución de mu ---
+link_quap <- link(m_quap, data = grilla, n = 500)
+grilla_q <- cbind(grilla, as.data.table(t(link_quap)))
+grilla_q <- melt(grilla_q, id.vars = names(grilla),
+                 variable.name = "iter", value.name = "pred")
+grilla_q <- grilla_q[, .(
+  metodo = "quap",
+  mu_kg = mean(exp(pred)) / 1000,
+  mu_lo_kg = quantile(exp(pred), 0.055) / 1000,
+  mu_hi_kg = quantile(exp(pred), 0.945) / 1000
+), by = body]
+
+# --- brms: fitted() da la distribución de mu ---
+fit_brms <- fitted(m_brms, newdata = grilla,
+                   probs = c(0.055, 0.945), ndraws = 500) %>%
+  as.data.table() %>% cbind(grilla)
+fit_brms[, `:=`(
+  metodo = "brms",
+  mu_kg = exp(Estimate) / 1000,
+  mu_lo_kg = exp(Q5.5) / 1000,
+  mu_hi_kg = exp(Q94.5) / 1000
+)]
+
+grilla_pred <- rbind(
+  grilla_q[, .(body, metodo, mu_kg, mu_lo_kg, mu_hi_kg)],
+  fit_brms[, .(body, metodo, mu_kg, mu_lo_kg, mu_hi_kg)]
+)
+
+ggplot() +
+  geom_ribbon(data = grilla_pred,
+              aes(x = body, ymin = mu_lo_kg, ymax = mu_hi_kg, fill = metodo),
+              alpha = 0.18) +
+  geom_line(data = grilla_pred,
+            aes(x = body, y = mu_kg, color = metodo),
+            linewidth = 1.1, linetype = "dashed") +
+  geom_point(data = dt,
+             aes(x = body, y = brain_kg),
+             alpha = 0.55, size = 2, color = "#333333") +
+  geom_text(data = dt[especie %in% especies_label],
+            aes(x = body, y = brain_kg, label = especie),
+            size = 3, vjust = -0.8, color = "#333333") +
+  scale_x_log10(labels = scales::comma_format()) +
+  scale_y_log10(labels = scales::comma_format()) +
+  scale_fill_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+  scale_color_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+  labs(title = "Predicción de la media posterior en escala real",
+       subtitle = "IC 89% de la media (banda) | Puntos: observaciones reales",
+       x = "Peso corporal (kg, escala log)",
+       y = "Peso cerebral (kg, escala log)",
+       fill = "Método", color = "Método") +
+  theme_minimal(base_size = 13)
+
+
+ggplot() +
+  geom_ribbon(data = grilla_pred,
+              aes(x = body, ymin = mu_lo_kg, ymax = mu_hi_kg, fill = metodo),
+              alpha = 0.18) +
+  geom_line(data = grilla_pred,
+            aes(x = body, y = mu_kg, color = metodo),
+            linewidth = 1.1, linetype = "dashed") +
+  geom_point(data = dt,
+             aes(x = body, y = brain_kg),
+             alpha = 0.55, size = 2, color = "#333333") +
+  scale_fill_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+  scale_color_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+  labs(title = "Predicción de la media posterior en escala real",
+       subtitle = "IC 89% de la media (banda) | Puntos: observaciones reales",
+       x = "Peso corporal (kg, escala log)",
+       y = "Peso cerebral (kg, escala log)",
+       fill = "Método", color = "Método") +
+  theme_minimal(base_size = 13)
+
+
+```
+
+
+## Intervalo de credibilidad y probabilidad posterior
+
+Calculamos el intervalo de credibilidad al 89% para $\beta$ y la probabilidad de que sea mayor que 0 (relación positiva) con ambos métodos.
+
+
+```{r viz-beta-prob, fig.height=4, fig.width=9}
+dt_beta_comp <- data.frame(
+  valor  = c(muestras_quap$beta,
+             muestras_brms$b_log_body_std),
+  metodo = rep(c("quap", "brms"), each = 4000)
+)
+
+ggplot(dt_beta_comp, aes(x = valor, fill = metodo, color = metodo)) +
+  geom_density(alpha = 0.35, linewidth = 1.1) +
+  geom_vline(xintercept = 0, color = col_azul,
+             linetype = "dashed", linewidth = 1.2) +
+  scale_fill_manual(values  = c("quap" = col_rojo, "brms" = col_celeste)) +
+  scale_color_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+  labs(title    = "Posterior de β: P(β > 0 | datos)",
+       subtitle = "Probabilidad de que la relación sea positiva",
+       x = "β", y = "Densidad", fill = "Método", color = "Método") +
+  theme_minimal(base_size = 13)
+
+
+p_quap <- mean(muestras_quap$beta > 0)
+p_brms <- mean(muestras_brms$b_log_body_std > 0)
+
+cat(
+  "Probabilidad de efecto > 0 según quap: ", round(p_quap, 4),
+  "\nProbabilidad de efecto > 0 según brms: ", round(p_brms, 4)
+  )
+
+
+```
+
+
+# Ejercicio 3: Explorar los gráficos y diagnósticos propios de `brms`
+
+Volvemos al modelo de masa cerebral en mamíferos del Ejercicio 1 (`m_brms`) para profundizar en un modelo `brms`. Además de las estimaciones, que pueden ser obtenidas de forma similar a `quap`, hay ciertos diagnósticos que siempre es bueno revisar cuando se trata de un modelo `brms`. Son diagnósticos específicos de la métodología de muestreo de las distribuciones: sus cadenas de Markov.
+
+## 3.1 Plot
+
+La función `plot` aplicada a un modelo brm entrenado da una visual de las posteriors marginales y de las cadenas de Markov de cada parámetro.
+
+```{r}
+plot(m_brms)
+```
+
+
+## 3.2 Trace plots (cadenas de Markov)
+
+Da el panel de la derecha de la función `plot`.
+
+Al muestrear la posterior, las cadenas de Markov de mueven de forma quasi-aleatoria alrededor de las zonas más probables. Observar a grandes rasgos como fue su recorrido sirve como primer diagnóstico. Lo más importante es que las cadenas hayan convergido: que hayan encontrado la misma distribución final.
+
+El **trace plot** muestra el recorrido de cada cadena a lo largo de las iteraciones de muestreo, por parámetro. Una cadena que **converge** luce como "ruido blanco estacionario": las cadenas se mezclan entre sí y exploran el espacio sin tendencias ni bloqueos. Estos recorridos suelen ser tener una forma de **"caterpillar" (oruga)**.
+
+```{r trace-plots, fig.height=7, fig.width=11}
+mcmc_trace(m_brms,
+           pars = vars(contains('b_'), sigma),
+           facet_args = list(ncol = 1)) +
+  scale_color_manual(values = c(col_azul, col_rojo, col_verde, col_purpura)) +
+  labs(title    = "Trace plots (Cadenas de Markov)",
+       subtitle = "Cada color es una cadena. Hay 4 cadenas por parámetro") +
+  theme_minimal(base_size = 12)
+```
+
+**Pregunta:** En este ejemplo, las cadenas de todos los parámetros convergen. ¿Como crees que se ve un trace plot con cadenas que no convergieron?
+
+> **Respuesta:** 
+
+
+## 3.3 Histograma "Rank"
+
+Los histogramas **rank** son una versión más robusta del trace plot para evaluar convergencia. Para cada parámetro, ordenan todas las muestras de todas las cadenas y verifican si cada cadena contribuyó uniformemente a todos los rangos. Si todas las cadenas muestrearon la misma distribución, la distribución de rangos dentro de cada cadena debería ser **uniforme**.
+
+La idea es que Si todas las cadenas convergieron a la misma distribución posterior, entonces sus muestras deberían ser indistinguibles entre sí. Si las cadenas no son convergentes, se crea un orden consistente entre ellas, lo que se plasma en histogramas ranks dispares.
+
+```{r rank-plots, fig.height=4, fig.width=11}
+mcmc_rank_hist(m_brms,
+               pars = vars(contains('b_'), sigma)) +
+  labs(title    = "Rank histogramas — Modelo mammals",
+       subtitle = "Distribución uniforme por cadena = buena convergencia") +
+  theme_minimal(base_size = 12)
+```
+
+## 3.4 R-hat: el estadístico de convergencia
+
+El **R-hat** ($\hat{R}$) mide cuánto más variable es la distribución entre cadenas respecto a dentro de cada cadena. Si todas las cadenas convergieron a la misma distribución, $\hat{R} \approx 1$ (variabilidad intra-cadena = variabilidad inter-cadena). Se considera una convergencia muy buena cuando $\hat{R} < 1.01$ (criterio estricto). Valores $\hat{R} > 1.05$ indican no convergencia. Cadenas divergentes tienen un Rhat mucho más alto.
+
+```{r rhat-plot, fig.height=3.5, fig.width=8}
+mcmc_rhat(brms::rhat(m_brms, pars = c("b_Intercept", "b_log_body_std", "sigma"))) +
+  geom_vline(xintercept = 1.01, color = col_rojo, linetype = "dashed") +
+  labs(title    = "R-hat por parámetro",
+       subtitle = "Línea roja = umbral 1.01. Todos deben estar a su izquierda") +
+  theme_minimal(base_size = 12)
+```
+
+También podemos ver el valor de $\hat{R}$ en el `summary` (ver siguiente sección).
+
+## 3.5 Effective Sample Size (ESS, Tamaño Efectivo de la Muestra)
+
+El **ESS** mide cuántas muestras independientes efectivas tenemos, descontando la autocorrelación de la cadena. Si tenemos muchas muestras pero cada muestra está altamente correlacionada con la anterior, el ESS sería mucho menor. `brms` reporta dos ESSs:
+
+- **Bulk ESS**: mide la exploración de la región central de la posterior (región de mayor densidad).
+- **Tail ESS**: mide la exploración de las colas (región de menor densidad).
+
+Se recomienda que las ESS sean similares entre sí e iguales o mayores a 400 por cadena (en este caso tenemos 4 cadenas -caso más común-, entonces esperamos que las ESS $\geq 1600$).
+
+```{r ess, fig.height=3.5, fig.width=8}
+summary(m_brms)
+```
+
+**Pregunta:** Supongamos que tenemos dos modelos:
+
+- Modelo 1: tuvo 4 cadenas de Markov de largo 10.000 (40.000 muestras totales) y un ESS (bulk y tail) de 5.000. 
+- Modelo 2: tuvo 4 cadenas de Markvos de largo 2.000 (8.000 muestras totales) y un ESS (bulk y tail) de 5.000.
+
+Siendo que el ESS es una forma de cuantificar la información explorada, conceptualmente, ¿qué significa que ambos modelos tengan un mismo ESS pero un número de muestras totales distinto?
+
+> **Respuesta:** 
+
+## 4.5 Posterior predictive checks (pp_check)
+
+Los **PPC** comparan la distribución observada de la variable respuesta con distribuciones simuladas desde la posterior predictiva. Si el modelo está bien definido, la distribución de valores simulados (sobre la muestra original) debería ser similar a la distribución de los valores observados.
+
+```{r ppc-densidad, fig.height=4.5, fig.width=9}
+pp_check(m_brms, ndraws = 100, type = "dens_overlay") +
+  labs(title    = "PPC: density overlay",
+       subtitle = "y: Distribución Observada | yrep: Distribuciones simualdas") +
+  theme_minimal(base_size = 12)
+```
+
+También podemos muestrear la posterior de los parámetros y compararlo con los valores analíticos de los valroes observados. En este caso, graficamos el promedio y el desvío.
+
+```{r ppc-estadisticos, fig.height=4.5, fig.width=9}
+pp_check(m_brms, ndraws = 500, type = "stat_2d", stat = c("mean", "sd")) +
+  labs(title    = "PPC: media vs. SD simulados",
+       subtitle = "y: Distribución Observada | yrep: Distribuciones simualdas") +
+  theme_minimal(base_size = 12)
+```
+
+**Pregunta:** ¿Cómo se verían estos gráficos para un modelo mal ajustado (posterior de parámetros mal definidos)?
+
+> **Respuesta:** 
+
+## 3.6 Autocorrelación de las cadenas
+
+En relación al ESS, si cada paso de la cadena de Markov están muy correlacionados a los pasos anteriores, la información muestreada se reduce. Podemos graficar las autocorrelaciones de cada cadena para chequear esto. En esto gráficos, esperamos ver una autocorrelación alta en los primeros lags pero que desciende rápidamente a 0, oscilando a su alrededor por el resto de los lags.
+
+
+```{r autocorr-plot, fig.height=5, fig.width=10}
+mcmc_acf(m_brms,
+         pars = vars(contains('b_'), sigma),
+         lags = 20) +
+  labs(title    = "Autocorrelación de las cadenas",
+       subtitle = "Si autocorrelación persistente = ESS bajo") +
+  theme_minimal(base_size = 12)
+```
+
+---
+
+# Warnings principales de `brms` y cómo resolverlos
+
+En casos reales, y en especial en modelos más complejos, es muy común que aparezcan algunos warnings al entrenar un modelo `brms`. Es importante no ignorarlos ciegamente, ya que pueden estar señalando problemas importantes en la convergencia de las cadenas de Markov.
+
+En esta sección se presentan algunos de los warnings más típicos, qué significan, y cómo abordarlos. Para mayor información, visiten la página [https://mc-stan.org/learn-stan/diagnostics-warnings.html](https://mc-stan.org/learn-stan/diagnostics-warnings.html)
+
+
+---
+
+## Warning 1: `Rhat` > 1.05 - No convergencia de cadenas
+
+**Mensaje típico:**
+```
+Warning: Rhat above 1.05 for parameters: b_log_body_std, sigma
+```
+
+**¿Qué significa?** Las cadenas MCMC no exploraron la misma distribución. Hubo divergencia y al menos una cadena exploró una región diferente del espacio posterior de parámetros, lo que indica que la posterior estimada no es confiable.
+
+**Causas más frecuentes:** priors demasiado difusos, predictores no estandarizados con escalas muy diferentes, multicolinealidad severa, pocas iteraciones de warmup, o modelo mal especificado.
+
+**Soluciones:** estandarizar los predictores continuos, usar priors más informativos y razonables, aumentar `iter` y `warmup`, o simplificar el modelo.
+
+---
+
+## Warning 2: `Bulk/Tail ESS too low` - ESS insuficiente
+
+**Mensaje típico:**
+```
+Warning: Bulk Effective Samples Size (ESS) is too low,
+indicating posterior distributions may be unreliable.
+```
+
+**¿Qué significa?** Las muestras de la cadena tienen alta autocorrelación: la cadena se mueve lentamente por el espacio de parámetros, por lo que las iteraciones aportan muchas menos muestras efectivas de información. El ESS bajo implica mayor incertidumbre sobre los cuantiles de la posterior.
+
+**Causas más frecuentes:** alta correlación entre parámetros del modelo, parámetros de escala cerca de los límites del espacio (ej. $\sigma \approx 0$ o $\phi$ muy pequeño), o modelos jerárquicos con pocos grupos.
+
+**Soluciones:** aumentar `iter`, reparametrizar el modelo para reducir correlaciones, usar priors más informativos, o aumentar `adapt_delta`.
+
+---
+
+## Warning 3: `Divergent transitions after warmup` - Transiciones divergentes
+
+**Mensaje típico:**
+```
+Warning: There were 15 divergent transitions after warmup.
+```
+
+**¿Qué significa?** El algoritmo HMC no logró explorar correctamente algunas regiones de la distribución posterior. Esto ocurre cuando la geometría de la posterior tiene zonas con curvatura muy pronunciada o estructuras demasiado pequeñas para la resolución del muestreador, haciendo que ciertas trayectorias sean inestables. Como consecuencia, partes de la posterior pueden quedar mal exploradas y las estimaciones resultar sesgadas.
+
+**Causas más frecuentes:** fuerte correlación entre parámetros, geometrías tipo *funnel* en modelos jerárquicos, parámetros cerca de los límites del espacio de parámetros, priors demasiado débiles, o distribuciones posteriores con curvaturas muy variables.
+
+**Soluciones:** aumentar `adapt_delta` para usar un tamaño de paso más pequeño, reparametrizar el modelo (especialmente usando parametrizaciones no centradas en modelos jerárquicos), usar priors más informativos, estandarizar variables predictoras, o simplificar la estructura del modelo.
+
+---
+
+## Warning 4: `max_treedepth exceeded` - Profundidad máxima del árbol
+
+**Mensaje típico:**
+```
+Warning: 89 of 4000 (2.0%) transitions hit the maximum treedepth limit of 10.
+```
+
+**¿Qué significa?** NUTS construye un "árbol" de pasos para explorar la posterior. Si el árbol alcanza la profundidad máxima, el paso termina antes de lo ideal. Este warning es **menos grave** que las divergencias (los resultados son válidos), pero indica ineficiencia en el muestreo: el algoritmo tarda más de lo necesario.
+
+**Causa:** la posterior tiene geometría compleja que requiere pasos de integración muy largos para ser explorada eficientemente.
+
+**Solución:** aumentar `max_treedepth` (ej. `control = list(max_treedepth = 15)`).
+
+---
+
+## Resumen de warnings
+
+| Warning | Gravedad | Causa principal | Solución principal |
+|---------|----------|-----------------|---------------------|
+| Rhat > 1.05 | 🔴 Alta | No convergencia, priors difusos, predictores sin estandarizar | Estandarizar predictores, priors informativos, más iter/warmup |
+| ESS bajo | 🔴 Alta | Alta autocorrelación entre muestras | Más iter, reparametrizar, `adapt_delta` mayor |
+| Divergencias | 🟡 Media | Problemas al muestrear ciertas regiones de la posterior | `adapt_delta` alto, reparametrización no-centrada, priors informativos |
+| max_treedepth | 🟡 Baja | Posterior con geometría compleja | Aumentar `max_treedepth` |
