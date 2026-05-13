@@ -6,3 +6,5 @@
 Thumbs.db
 *.html
 *.pdf
+*.parquet
+*.pkl

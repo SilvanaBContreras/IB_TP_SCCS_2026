@@ -1,0 +1,203 @@
+{
+  "M1_logistica": {
+    "descripcion": "Regresi\u00f3n log\u00edstica lineal con 3 features (monto, canal, dispositivo). Modelo simple, transparente. Sin terminal_risk_score ni hora.",
+    "features": [
+      "monto_log",
+      "canal",
+      "dispositivo"
+    ],
+    "threshold": 0.14,
+    "T0_train": {
+      "n": 420460,
+      "n_fraude": 3355,
+      "threshold": 0.14,
+      "TP": 715,
+      "FP": 2305,
+      "FN": 2640,
+      "TN": 414800,
+      "precision": 0.2367549668874172,
+      "recall": 0.21311475409836064,
+      "f1": 0.22431372549019607,
+      "accuracy": 0.9882390714931266,
+      "auc_roc": 0.9096718769291368,
+      "auc_pr": 0.16279774261459018
+    },
+    "T0_validacion": {
+      "n": 180832,
+      "n_fraude": 1448,
+      "threshold": 0.14,
+      "TP": 347,
+      "FP": 1065,
+      "FN": 1101,
+      "TN": 178319,
+      "precision": 0.24575070821529746,
+      "recall": 0.23964088397790057,
+      "f1": 0.24265734265734265,
+      "accuracy": 0.9880220314988497,
+      "auc_roc": 0.9120888661824395,
+      "auc_pr": 0.1717161162504145
+    }
+  },
+  "M2_random_forest": {
+    "descripcion": "Random Forest con 5 features (incluye hora_bin). Modelo intermedio. Sin terminal_risk_score (no usa el score hist\u00f3rico de la terminal).",
+    "features": [
+      "monto_log",
+      "secuencia_24h",
+      "canal",
+      "dispositivo",
+      "hora_bin"
+    ],
+    "threshold": 0.11,
+    "T0_train": {
+      "n": 420460,
+      "n_fraude": 3355,
+      "threshold": 0.11,
+      "TP": 945,
+      "FP": 2604,
+      "FN": 2410,
+      "TN": 414501,
+      "precision": 0.26627218934911245,
+      "recall": 0.2816691505216095,
+      "f1": 0.2737543453070684,
+      "accuracy": 0.9880749655139609,
+      "auc_roc": 0.9222126623239446,
+      "auc_pr": 0.23066267451262862
+    },
+    "T0_validacion": {
+      "n": 180832,
+      "n_fraude": 1448,
+      "threshold": 0.11,
+      "TP": 377,
+      "FP": 1272,
+      "FN": 1071,
+      "TN": 178112,
+      "precision": 0.22862340812613705,
+      "recall": 0.26035911602209943,
+      "f1": 0.243461414271876,
+      "accuracy": 0.9870432224385065,
+      "auc_roc": 0.8958312184632836,
+      "auc_pr": 0.16115462355993335
+    }
+  },
+  "M3_gbm_completo": {
+    "descripcion": "Gradient Boosting completo con 6 features incluyendo terminal_risk_score y hora_bin. Mejor F1 en validaci\u00f3n T0. Elegido por el banco para producci\u00f3n.",
+    "features": [
+      "monto_log",
+      "secuencia_24h",
+      "terminal_risk_score",
+      "canal",
+      "dispositivo",
+      "hora_bin"
+    ],
+    "threshold": 0.46,
+    "T0_train": {
+      "n": 420460,
+      "n_fraude": 3355,
+      "threshold": 0.46,
+      "TP": 2896,
+      "FP": 273,
+      "FN": 459,
+      "TN": 416832,
+      "precision": 0.9138529504575575,
+      "recall": 0.8631892697466468,
+      "f1": 0.8877988963825874,
+      "accuracy": 0.9982590496123294,
+      "auc_roc": 0.9987188425019801,
+      "auc_pr": 0.9444951335681263
+    },
+    "T0_validacion": {
+      "n": 180832,
+      "n_fraude": 1448,
+      "threshold": 0.46,
+      "TP": 1176,
+      "FP": 170,
+      "FN": 272,
+      "TN": 179214,
+      "precision": 0.8736998514115899,
+      "recall": 0.8121546961325967,
+      "f1": 0.8418038654259127,
+      "accuracy": 0.9975557423464874,
+      "auc_roc": 0.9964362251645471,
+      "auc_pr": 0.8546909536797841
+    }
+  },
+  "M4_gbm_moderado": {
+    "descripcion": "Gradient Boosting moderado con 5 features (sin terminal_risk_score). Compromiso entre M1 y M3.",
+    "features": [
+      "monto_log",
+      "secuencia_24h",
+      "canal",
+      "dispositivo",
+      "hora_bin"
+    ],
+    "threshold": 0.11,
+    "T0_train": {
+      "n": 420460,
+      "n_fraude": 3355,
+      "threshold": 0.11,
+      "TP": 963,
+      "FP": 3228,
+      "FN": 2392,
+      "TN": 413877,
+      "precision": 0.2297780959198282,
+      "recall": 0.2870342771982116,
+      "f1": 0.25523456135701034,
+      "accuracy": 0.986633686914332,
+      "auc_roc": 0.9158418626466358,
+      "auc_pr": 0.21077782426469382
+    },
+    "T0_validacion": {
+      "n": 180832,
+      "n_fraude": 1448,
+      "threshold": 0.11,
+      "TP": 395,
+      "FP": 1507,
+      "FN": 1053,
+      "TN": 177877,
+      "precision": 0.20767613038906416,
+      "recall": 0.27279005524861877,
+      "f1": 0.23582089552238805,
+      "accuracy": 0.985843213590515,
+      "auc_roc": 0.9118584967758294,
+      "auc_pr": 0.14806789852207464
+    }
+  },
+  "M5_naive_bayes": {
+    "descripcion": "Naive Bayes Gaussiano con solo 2 features estructurales (monto + secuencia). Modelo de referencia minimalista.",
+    "features": [
+      "monto_log",
+      "secuencia_24h"
+    ],
+    "threshold": 0.11,
+    "T0_train": {
+      "n": 420460,
+      "n_fraude": 3355,
+      "threshold": 0.11,
+      "TP": 675,
+      "FP": 2998,
+      "FN": 2680,
+      "TN": 414107,
+      "precision": 0.1837734821671658,
+      "recall": 0.20119225037257824,
+      "f1": 0.1920887877063176,
+      "accuracy": 0.9864957427579318,
+      "auc_roc": 0.8935403496505284,
+      "auc_pr": 0.12229505976354627
+    },
+    "T0_validacion": {
+      "n": 180832,
+      "n_fraude": 1448,
+      "threshold": 0.11,
+      "TP": 330,
+      "FP": 1312,
+      "FN": 1118,
+      "TN": 178072,
+      "precision": 0.20097442143727162,
+      "recall": 0.22790055248618785,
+      "f1": 0.21359223300970873,
+      "accuracy": 0.9865621129003717,
+      "auc_roc": 0.8964717622961627,
+      "auc_pr": 0.13717594215308737
+    }
+  }
+}

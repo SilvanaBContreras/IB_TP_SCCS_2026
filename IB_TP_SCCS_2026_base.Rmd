@@ -15,14 +15,6 @@ header-includes:
   - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
 ---
 
-```{aclaración}
-
-print("ATENCIÓN: Este .rmd es un EXTRACTO de la práctica 6 para usar como template en caso de resultar útil")
-#quité el ejercicio 2
-#quité explicaciones pedagógicas
-#no toqué código
-
-```
 
 
 ```{r setup, include=FALSE}
@@ -46,6 +38,8 @@ library(bayesplot)
 library(scales)
 library(ibUBA)
 
+
+
 set.seed(42)
 
 # Paleta del curso
@@ -58,6 +52,151 @@ col_verde   <- unname(pal["green"])
 col_gris    <- "#95A5A6"
 ```
 
+```{r}
+
+print("ATENCIÓN: Este .rmd es un EXTRACTO de la práctica 6 para usar como template en caso de resultar útil")
+#quité el ejercicio 2
+#quité explicaciones pedagógicas
+#no toqué código
+
+  
+```
+
+
+```{r}
+
+print("La URL del caso está en: https://anfora.netlify.app/")
+  
+```
+
+```{r}
+install.packages(c(
+  "tidyverse",
+  "jsonlite",
+  "ggplot2",
+  "posterior",
+"nanoparquet"))
+  
+```
+
+```{r}
+
+# ============================================================
+# Descarga automática de datos del Caso B - Banco Ánfora
+# ============================================================
+
+# Crear estructura de carpetas si no existe
+dir.create("datos", showWarnings = FALSE)
+dir.create("datos/v6", showWarnings = FALSE, recursive = TRUE)
+dir.create("datos/v6/modelos", showWarnings = FALSE, recursive = TRUE)
+
+# ------------------------------------------------------------
+# URLs de descarga
+# ------------------------------------------------------------
+
+urls_datos <- list(
+  
+  # Métricas principales
+  metricas_temporales = list(
+    url = "https://anfora.netlify.app/datos/v6/metricas_temporales.csv",
+    destino = "datos/v6/metricas_temporales.csv"
+  ),
+  
+  metricas_T0_validacion = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/metricas_T0_validacion.json",
+    destino = "datos/v6/modelos/metricas_T0_validacion.json"
+  ),
+  
+  # Archivos parquet
+  operaciones_T1 = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T1.parquet",
+    destino = "datos/v6/operaciones_T1.parquet"
+  ),
+  
+  operaciones_T0_valid = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T0_valid.parquet",
+    destino = "datos/v6/operaciones_T0_valid.parquet"
+  ),
+  
+  operaciones_T0_train = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T0_train.parquet",
+    destino = "datos/v6/operaciones_T0_train.parquet"
+  ),
+  
+  operaciones = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones.parquet",
+    destino = "datos/v6/operaciones.parquet"
+  ),
+  
+  # Modelos serializados
+  modelo_M1 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M1_logistica.pkl",
+    destino = "datos/v6/modelos/M1.pkl"
+  ),
+  
+  modelo_M2 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M2_random_forest.pkl",
+    destino = "datos/v6/modelos/M2.pkl"
+  ),
+  
+  modelo_M3 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M3_gbm_completo.pkl",
+    destino = "datos/v6/modelos/M3.pkl"
+  ),
+  
+  modelo_M4 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M4_gbm_moderado.pkl",
+    destino = "datos/v6/modelos/M4.pkl"
+  ),
+  
+  modelo_M5 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M5_naive_bayes.pkl",
+    destino = "datos/v6/modelos/M5.pkl"
+  )
+)
+
+# ------------------------------------------------------------
+# Función de descarga
+# ------------------------------------------------------------
+
+descargar_si_no_existe <- function(nombre, url, destino) {
+  
+  if (file.exists(destino)) {
+    message("Ya existe: ", destino)
+  } else {
+    message("Descargando: ", nombre)
+    
+    tryCatch(
+      {
+        download.file(
+          url = url,
+          destfile = destino,
+          mode = "wb"
+        )
+        message("Descarga completa: ", destino)
+      },
+      error = function(e) {
+        message("No se pudo descargar: ", nombre)
+        message("Revisar URL o conexión.")
+        message("Error: ", e$message)
+      }
+    )
+  }
+}
+
+# ------------------------------------------------------------
+# Descargar todos los archivos declarados
+# ------------------------------------------------------------
+
+for (nombre in names(urls_datos)) {
+  descargar_si_no_existe(
+    nombre = nombre,
+    url = urls_datos[[nombre]]$url,
+    destino = urls_datos[[nombre]]$destino
+  )
+}
+
+```
 ---
 
 
