@@ -79,6 +79,8 @@ install.packages(c(
   
 ```
 
+## descarga datos TP CASO 2
+
 ```{r}
 
 # ============================================================
@@ -197,8 +199,366 @@ for (nombre in names(urls_datos)) {
 }
 
 ```
+
+## paso 1 M3
+
+```{r}
+library(data.table)
+library(jsonlite)
+
+ruta_metricas_T0 <- "datos/v6/modelos/metricas_T0_validacion.json"
+metricas_T0 <- fromJSON(ruta_metricas_T0)
+
+names(metricas_T0)
+length(metricas_T0)
+
+```
+
+
+```{r}
+
+m3_T0_validacion <- metricas_T0$M3_gbm_completo$T0_validacion
+dt_m3_T0 <- as.data.table(as.list(m3_T0_validacion))
+dt_m3_T0
+
+```
+
+
+```{r}
+
+# Cálculo manual de F1 desde TP, FP y FN
+# Fórmula clásica: F1 = 2TP / (2TP + FP + FN)
+
+TP <- m3_T0_validacion$TP
+FP <- m3_T0_validacion$FP
+FN <- m3_T0_validacion$FN
+TN <- m3_T0_validacion$TN
+
+f1_calculado <- (2 * TP) / ((2 * TP) + FP + FN)
+
+f1_reportado <- m3_T0_validacion$f1
+
+# Tabla de control
+dt_control_m3 <- data.table(
+  modelo = "M3_gbm_completo",
+  ventana = "T0_validacion",
+  TP = TP,
+  FP = FP,
+  FN = FN,
+  TN = TN,
+  f1_calculado = f1_calculado,
+  f1_reportado = f1_reportado,
+  diferencia = f1_calculado - f1_reportado
+)
+
+dt_control_m3
+
+```
+
+```{r}
+
+# ============================================================
+# Sanity checks del Paso 1
+# ============================================================
+
+# Check 1: el F1 recalculado coincide con el F1 reportado
+check_f1_coincide <- isTRUE(all.equal(
+  f1_calculado,
+  f1_reportado,
+  tolerance = 1e-12
+))
+
+# Check 2: el F1 recalculado redondea a 0.842
+check_f1_0842 <- round(f1_calculado, 3) == 0.842
+
+# Check 3: los conteos suman el total de validación T0
+n_validacion <- m3_T0_validacion$n
+check_conteos_suman_n <- (TP + FP + FN + TN) == n_validacion
+
+# Check 4: los fraudes reales coinciden con TP + FN
+n_fraude <- m3_T0_validacion$n_fraude
+check_fraudes_suman <- (TP + FN) == n_fraude
+
+dt_sanity_checks <- data.table(
+  chequeo = c(
+    "F1 calculado coincide con F1 reportado",
+    "F1 calculado redondea a 0.842",
+    "TP + FP + FN + TN coincide con n",
+    "TP + FN coincide con n_fraude"
+  ),
+  resultado = c(
+    check_f1_coincide,
+    check_f1_0842,
+    check_conteos_suman_n,
+    check_fraudes_suman
+  )
+)
+
+dt_sanity_checks
+
+```
+## paso 2 M3 primer posterior
+```{r}
+
+# Carga de conteos de M3 en T0 validación
+
+TP <- m3_T0_validacion$TP
+FP <- m3_T0_validacion$FP
+FN <- m3_T0_validacion$FN
+TN <- m3_T0_validacion$TN
+
+# Sanity check de conteos
+
+dt_conteos_m3 <- data.table(
+  modelo = "M3_gbm_completo",
+  ventana = "T0_validacion",
+  TP = TP,
+  FP = FP,
+  FN = FN,
+  TN = TN
+)
+
+dt_conteos_m3
+
+```
+
+```{r}
+
+# Cálculo puntual de precisión y sensibilidad
+
+precision_puntual <- TP / (TP + FP)
+sensibilidad_puntual <- TP / (TP + FN)
+
+dt_metricas_puntuales_m3 <- data.table(
+  modelo = "M3_gbm_completo",
+  ventana = "T0_validacion",
+  precision_puntual = precision_puntual, #proporción de alertas del modelo que efectivamente eran fraude.
+  sensibilidad_puntual = sensibilidad_puntual #proporción de fraudes reales que el modelo logró detectar
+)
+
+dt_metricas_puntuales_m3
+
+```
+
+
+```{r}
+
+# Parámetros del prior uniforme
+
+alpha_prior <- 1
+beta_prior <- 1
+
+# Posterior de precisión
+# Éxitos: TP
+# Fracasos: FP
+
+alpha_precision <- alpha_prior + TP
+beta_precision <- beta_prior + FP
+
+# Posterior de sensibilidad
+# Éxitos: TP
+# Fracasos: FN
+
+alpha_sensibilidad <- alpha_prior + TP
+beta_sensibilidad <- beta_prior + FN
+
+dt_parametros_posteriores_m3 <- data.table(
+  metrica = c("precision", "sensibilidad"),
+  alpha_posterior = c(alpha_precision, alpha_sensibilidad),
+  beta_posterior = c(beta_precision, beta_sensibilidad)
+)
+
+dt_parametros_posteriores_m3
+
+```
+
+```{r}
+
+# Muestreo de las posteriores Beta de precisión y sensibilidad
+
+set.seed(20260424)
+
+S <- 50000
+
+muestras_precision <- rbeta(
+  n = S,
+  shape1 = alpha_precision,
+  shape2 = beta_precision
+)
+
+muestras_sensibilidad <- rbeta(
+  n = S,
+  shape1 = alpha_sensibilidad,
+  shape2 = beta_sensibilidad
+)
+
+# Sanity checks de muestras posteriores
+
+dt_sanity_muestras <- data.table(
+  objeto = c("muestras_precision", "muestras_sensibilidad"),
+  n_muestras = c(length(muestras_precision), length(muestras_sensibilidad)),
+  minimo = c(min(muestras_precision), min(muestras_sensibilidad)),
+  maximo = c(max(muestras_precision), max(muestras_sensibilidad)),
+  media = c(mean(muestras_precision), mean(muestras_sensibilidad))
+)
+
+dt_sanity_muestras
+
+```
+
+```{r}
+
+# Cálculo de HPDI 95 por ciento con ibUBA
+
+hpdi_precision <- hpdi(muestras_precision, prob = 0.95)
+hpdi_sensibilidad <- hpdi(muestras_sensibilidad, prob = 0.95)
+
+# Inspección de objetos HPDI
+
+hpdi_precision
+hpdi_sensibilidad
+
+```
+
+
+
+```{r}
+# Tabla resumen del posterior de precisión y sensibilidad
+
+dt_posterior_m3_paso2 <- data.table(
+  modelo = "M3_gbm_completo",
+  ventana = "T0_validacion",
+  metrica = c("precision", "sensibilidad"),
+  estimacion_puntual = c(
+    precision_puntual,
+    sensibilidad_puntual
+  ),
+  mediana_posterior = c(
+    median(muestras_precision),
+    median(muestras_sensibilidad)
+  ),
+  hpdi_95_inf = c(
+    hpdi_precision[1],
+    hpdi_sensibilidad[1]
+  ),
+  hpdi_95_sup = c(
+    hpdi_precision[2],
+    hpdi_sensibilidad[2]
+  ),
+  alpha_posterior = c(
+    alpha_precision,
+    alpha_sensibilidad
+  ),
+  beta_posterior = c(
+    beta_precision,
+    beta_sensibilidad
+  )
+)
+
+dt_posterior_m3_paso2
+```
+
+```{r}
+# Tabla final para reportar el Paso 2
+
+dt_reporte_paso2 <- data.table(
+  modelo = "M3_gbm_completo",
+  ventana = "T0_validacion",
+  metrica = c("precision", "sensibilidad"),
+  mediana_posterior = c(
+    median(muestras_precision),
+    median(muestras_sensibilidad)
+  ),
+  hpdi_95_inf = c(
+    hpdi_precision["lower"],
+    hpdi_sensibilidad["lower"]
+  ),
+  hpdi_95_sup = c(
+    hpdi_precision["upper"],
+    hpdi_sensibilidad["upper"]
+  )
+)
+
+dt_reporte_paso2
+```
+
+
+```{r}
+# ============================================================
+# Graficación Estilo Prácticas (Sin bayesplot / mcmc_areas)
+# ============================================================
+
+# 1. Crear un dataframe con las muestras para ggplot
+df_muestras <- data.table(
+  precision = muestras_precision,
+  sensibilidad = muestras_sensibilidad
+) %>% 
+  pivot_longer(cols = everything(), names_to = "metrica", values_to = "valor")
+
+# 2. Gráfico de Posteriores con áreas HPDI sombreadas
+# (Este es el estilo de "La danza de la pava")
+
+ggplot(df_muestras, aes(x = valor, fill = metrica)) +
+  # Densidades de las muestras
+  geom_density(alpha = 0.5, color = NA) +
+  # Líneas de las medias posteriores
+  geom_vline(data = dt_reporte_paso2, aes(xintercept = mediana_posterior, color = metrica), 
+             linetype = "dashed", size = 0.8) +
+  # Anotación de los intervalos HPDI (barras horizontales inferiores)
+  geom_errorbarh(data = dt_reporte_paso2, 
+                 aes(y = 0, xmin = hpdi_95_inf, xmax = hpdi_95_sup, color = metrica),
+                 height = 5, size = 1.2, inherit.aes = FALSE) +
+  # Curva Teórica del Prior (Beta 1,1 es una uniforme, se ve como línea tope)
+  stat_function(fun = dbeta, args = list(shape1 = 1, shape2 = 1), 
+                aes(linetype = "Prior Uniforme"), color = col_gris, size = 1) +
+  # Estética
+  scale_fill_manual(values = c("precision" = col_azul, "sensibilidad" = col_rojo)) +
+  scale_color_manual(values = c("precision" = col_azul, "sensibilidad" = col_rojo)) +
+  scale_x_continuous(labels = scales::percent, limits = c(0.7, 1)) +
+  labs(
+    title = "Distribuciones Posterior y Prior",
+    subtitle = "M3: GBM Completo - Validación T0",
+    x = "Valor de la proporción",
+    y = "Densidad de probabilidad",
+    fill = "Métrica",
+    color = "Métrica",
+    linetype = ""
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# 3. Gráfico comparativo de densidades (Facetado)
+# A veces el profe usa facetas para que no se pisen las curvas
+
+ggplot(df_muestras, aes(x = valor, fill = metrica)) +
+  geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.3) +
+  geom_density(size = 1) +
+  facet_wrap(~metrica, scales = "free_y") +
+  scale_fill_manual(values = c("precision" = col_azul, "sensibilidad" = col_rojo)) +
+  theme_bw() +
+  labs(title = "Detalle por métrica (Posterior)", x = "Valor", y = "Densidad")
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+
 ---
 
+
+
+
+# PRACTICO 06
 
 ## Preparación de los datos
 
@@ -289,55 +649,56 @@ summary(m_brms)
 ## Comparación de posteriors
 
 ```{r comp-posteriors-setup}
-# muestras_quap <- extract.samples(m_quap, n = 4000)
-# muestras_brms <- as.data.table(as_draws_df(m_brms))
-# 
-# dt_alpha <- rbindlist(list(
-#   data.table(parametro = "alpha", modelo = "quap",
-#              valor = muestras_quap$alpha),
-#   data.table(parametro = "alpha", modelo = "brms",
-#              valor = muestras_brms$b_Intercept)
-# ))
-# 
-# dt_beta <- rbindlist(list(
-#   data.table(parametro = "beta", modelo = "quap",
-#              valor = muestras_quap$beta),
-#   data.table(parametro = "beta", modelo = "brms",
-#              valor = muestras_brms$b_log_body_std)
-# ))
-# 
-# dt_sigma <- rbindlist(list(
-#   data.table(parametro = "sigma", modelo = "quap",
-#              valor = muestras_quap$sigma),
-#   data.table(parametro = "sigma", modelo = "brms",
-#              valor = muestras_brms$sigma)
-# ))
-# 
-# dt_posteriors <- rbindlist(list(dt_alpha, dt_beta, dt_sigma))
+muestras_quap <- extract.samples(m_quap, n = 4000)
+muestras_brms <- as.data.table(as_draws_df(m_brms)) #estas son las muestras del modelo BRMS
+
+dt_alpha <- rbindlist(list(
+  data.table(parametro = "alpha", modelo = "quap",
+             valor = muestras_quap$alpha),
+  data.table(parametro = "alpha", modelo = "brms",
+             valor = muestras_brms$b_Intercept)
+))
+
+dt_beta <- rbindlist(list(
+  data.table(parametro = "beta", modelo = "quap",
+             valor = muestras_quap$beta),
+  data.table(parametro = "beta", modelo = "brms",
+             valor = muestras_brms$b_log_body_std)
+))
+
+dt_sigma <- rbindlist(list(
+  data.table(parametro = "sigma", modelo = "quap",
+             valor = muestras_quap$sigma),
+  data.table(parametro = "sigma", modelo = "brms",
+             valor = muestras_brms$sigma)
+))
+
+
+dt_posteriors <- rbindlist(list(dt_alpha, dt_beta, dt_sigma))
 ```
 
 ```{r comp-posteriors-tabla}
-# resumen <- dt_posteriors[, .(
-#   media = round(mean(valor), 3),
-#   q05   = round(quantile(valor, 0.055), 3),
-#   q95   = round(quantile(valor, 0.945), 3)
-# ), by = .(parametro, modelo)]
-# 
-# cat("=== Comparación de posteriors (media e IC 89%) ===\n")
-# print(resumen[order(parametro, modelo)])
+resumen <- dt_posteriors[, .(
+  media = round(mean(valor), 3),
+  q05   = round(quantile(valor, 0.055), 3),
+  q95   = round(quantile(valor, 0.945), 3)
+), by = .(parametro, modelo)]
+
+cat("=== comparación de posteriors (media e ic 89%) ===\n")
+print(resumen[order(parametro, modelo)])
 ```
 
 ```{r comp-posteriors-plot, fig.height=4, fig.width=11}
-# ggplot(dt_posteriors, aes(x = valor, fill = modelo, color = modelo)) +
-#   geom_density(alpha = 0.35, linewidth = 1.1) +
-#   facet_wrap(~ parametro, scales = "free", ncol = 3) +
-#   scale_fill_manual(values  = c("quap" = col_rojo, "brms" = col_celeste)) +
-#   scale_color_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
-#   labs(title    = "Distribuciones posteriores: quap vs. brms",
-#        subtitle = "Las curvas se superponen — la posterior es aproximadamente gaussiana",
-#        x = "Valor del parámetro", y = "Densidad posterior",
-#        fill = "Método", color = "Método") +
-#   theme_minimal(base_size = 13)
+ggplot(dt_posteriors, aes(x = valor, fill = modelo, color = modelo)) +
+  geom_density(alpha = 0.35, linewidth = 1.1) +
+  facet_wrap(~ parametro, scales = "free", ncol = 3) +
+  scale_fill_manual(values  = c("quap" = col_rojo, "brms" = col_celeste)) +
+  scale_color_manual(values = c("quap" = col_rojo, "brms" = col_celeste)) +
+  labs(title    = "Distribuciones posteriores: quap vs. brms",
+       subtitle = "Las curvas se superponen — la posterior es aproximadamente gaussiana",
+       x = "Valor del parámetro", y = "Densidad posterior",
+       fill = "Método", color = "Método") +
+  theme_minimal(base_size = 13)
 ```
 
 
