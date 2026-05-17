@@ -540,7 +540,88 @@ ggplot(df_muestras, aes(x = valor, fill = metrica)) +
 ```
 
 ```{r}
+# Paso 3
+muestras_f1 <- 2 * muestras_precision * muestras_sensibilidad / 
+               (muestras_precision + muestras_sensibilidad)
 
+mediana_f1 <- median(muestras_f1)
+
+hpdi_f1 <- hpdi(muestras_f1, prob = 0.95)
+
+hpdi_95_inf_f1 = c(hpdi_f1[1])
+hpdi_95_sup_f1 = c(hpdi_f1[2])
+```
+
+```{r}
+# Tabla resumen del posterior de F1 vía Monte Carlo
+
+dt_posterior_f1_m3 <- data.table(
+  modelo = "M3_gbm_completo",
+  ventana = "T0_validacion",
+  metrica = "F1",
+  mediana_posterior = mediana_f1,
+  hpdi_95_inf = hpdi_95_inf_f1,
+  hpdi_95_sup = hpdi_95_sup_f1,
+  f1_puntual_paso1 = round(f1_calculado, 4),
+  cubre_f1_puntual = (hpdi_95_inf_f1 <= f1_calculado) & 
+                     (f1_calculado <= hpdi_95_sup_f1)
+)
+
+dt_posterior_f1_m3
+
+```
+
+```{r}
+# Paso 4
+
+analisis_modelo_T0 <- function(nombre_modelo, metricas_T0, S = 50000) {
+  
+  # Extraemos conteos del JSON
+  m_T0 <- metricas_T0[[nombre_modelo]]$T0_validacion
+  TP <- m_T0$TP
+  FP <- m_T0$FP
+  FN <- m_T0$FN
+  
+  # Definimos los parámetros de las posteriores Beta-Binomial (prior uniforme)
+  alpha_precision    <- 1 + TP
+  beta_precision     <- 1 + FP
+  alpha_sensibilidad <- 1 + TP
+  beta_sensibilidad  <- 1 + FN
+  
+  # Hacemos las simulaciones son el muestreo Monte Carlo de precisión y sensibilidad
+  muestras_p <- rbeta(S, alpha_precision,    beta_precision)
+  muestras_r <- rbeta(S, alpha_sensibilidad, beta_sensibilidad)
+  
+  # Propagamos los valores para obtener todos los F1
+  muestras_f1 <- 2 * muestras_p * muestras_r / (muestras_p + muestras_r)
+  
+  # Calculo hpdi y armo la tabla resumen
+  hpdi_f1 <- hpdi(muestras_f1, prob = 0.95)
+  
+  data.table(
+    modelo     = nombre_modelo,
+    mediana_F1 = median(muestras_f1),
+    HPDI_95    = sprintf("[%.4f, %.4f]", hpdi_f1[1], hpdi_f1[2]),
+    conteos    = sprintf("TP=%d, FP=%d, FN=%d", TP, FP, FN)
+  )
+}
+
+# Aplicar a los cinco modelos
+set.seed(20260424)
+
+nombres_modelos <- c(
+  "M1_logistica",
+  "M2_random_forest",
+  "M3_gbm_completo",
+  "M4_gbm_moderado",
+  "M5_naive_bayes"
+)
+
+dt_reporte_paso4 <- rbindlist(
+  lapply(nombres_modelos, analisis_modelo_T0, metricas_T0 = metricas_T0)
+)
+
+dt_reporte_paso4
 ```
 
 ```{r}
@@ -551,7 +632,13 @@ ggplot(df_muestras, aes(x = valor, fill = metrica)) +
 
 ```
 
+```{r}
 
+```
+
+```{r}
+
+```
 
 ---
 
