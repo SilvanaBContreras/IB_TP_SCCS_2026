@@ -200,7 +200,28 @@ for (nombre in names(urls_datos)) {
 
 ```
 
-## paso 1 M3
+# directorio para graficos
+```{r}
+# Directorio para guardar gráficos
+
+directorio_graficos <- "graficos"
+
+dir.create(
+  path = directorio_graficos,
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+dt_sanity_directorio_graficos <- data.table(
+  directorio = directorio_graficos,
+  existe = dir.exists(directorio_graficos),
+  ruta_absoluta = normalizePath(directorio_graficos)
+)
+
+dt_sanity_directorio_graficos
+```
+
+## 1 Reconstrucción de F1 en T0_m3
 
 ```{r}
 library(data.table)
@@ -234,24 +255,24 @@ FP <- m3_T0_validacion$FP
 FN <- m3_T0_validacion$FN
 TN <- m3_T0_validacion$TN
 
-f1_calculado <- (2 * TP) / ((2 * TP) + FP + FN)
+f1_calculado_t0_m3 <- (2 * TP) / ((2 * TP) + FP + FN)
 
-f1_reportado <- m3_T0_validacion$f1
+f1_reportado_t0_m3 <- m3_T0_validacion$f1
 
 # Tabla de control
-dt_control_m3 <- data.table(
+dt_control_t0_m3 <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   TP = TP,
   FP = FP,
   FN = FN,
   TN = TN,
-  f1_calculado = f1_calculado,
-  f1_reportado = f1_reportado,
-  diferencia = f1_calculado - f1_reportado
+  f1_calculado = f1_calculado_t0_m3,
+  f1_reportado = f1_reportado_t0_m3,
+  diferencia = f1_calculado_t0_m3 - f1_reportado_t0_m3
 )
 
-dt_control_m3
+dt_control_t0_m3
 
 ```
 
@@ -263,13 +284,13 @@ dt_control_m3
 
 # Check 1: el F1 recalculado coincide con el F1 reportado
 check_f1_coincide <- isTRUE(all.equal(
-  f1_calculado,
-  f1_reportado,
+  f1_calculado_t0_m3,
+  f1_reportado_t0_m3,
   tolerance = 1e-12
 ))
 
 # Check 2: el F1 recalculado redondea a 0.842
-check_f1_0842 <- round(f1_calculado, 3) == 0.842
+check_f1_0842 <- round(f1_calculado_t0_m3, 3) == 0.842
 
 # Check 3: los conteos suman el total de validación T0
 n_validacion <- m3_T0_validacion$n
@@ -297,7 +318,8 @@ dt_sanity_checks <- data.table(
 dt_sanity_checks
 
 ```
-## paso 2 M3 primer posterior
+
+# 2 Posteriores Beta-Binomial T0_m3
 
 ```{r}
 
@@ -310,7 +332,7 @@ TN <- m3_T0_validacion$TN
 
 # Sanity check de conteos
 
-dt_conteos_m3 <- data.table(
+dt_conteos_t0_m3 <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   TP = TP,
@@ -319,7 +341,7 @@ dt_conteos_m3 <- data.table(
   TN = TN
 )
 
-dt_conteos_m3
+dt_conteos_t0_m3
 
 ```
 
@@ -327,17 +349,17 @@ dt_conteos_m3
 
 # Cálculo puntual de precisión y sensibilidad
 
-precision_puntual <- TP / (TP + FP)
-sensibilidad_puntual <- TP / (TP + FN)
+precision_puntual_t0_m3 <- TP / (TP + FP)
+sensibilidad_puntual_t0_m3 <- TP / (TP + FN)
 
-dt_metricas_puntuales_m3 <- data.table(
+dt_metricas_puntuales_t0_m3 <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
-  precision_puntual = precision_puntual, #proporción de alertas del modelo que efectivamente eran fraude.
-  sensibilidad_puntual = sensibilidad_puntual #proporción de fraudes reales que el modelo logró detectar
+  precision_puntual = precision_puntual_t0_m3, #proporción de alertas del modelo que efectivamente eran fraude.
+  sensibilidad_puntual = sensibilidad_puntual_t0_m3 #proporción de fraudes reales que el modelo logró detectar
 )
 
-dt_metricas_puntuales_m3
+dt_metricas_puntuales_t0_m3
 
 ```
 
@@ -363,13 +385,13 @@ beta_precision <- beta_prior + FP
 alpha_sensibilidad <- alpha_prior + TP
 beta_sensibilidad <- beta_prior + FN
 
-dt_parametros_posteriores_m3 <- data.table(
+dt_parametros_posteriores_t0_m3 <- data.table(
   metrica = c("precision", "sensibilidad"),
   alpha_posterior = c(alpha_precision, alpha_sensibilidad),
   beta_posterior = c(beta_precision, beta_sensibilidad)
 )
 
-dt_parametros_posteriores_m3
+dt_parametros_posteriores_t0_m3
 
 ```
 
@@ -381,13 +403,13 @@ set.seed(20260424)
 
 S <- 50000
 
-muestras_precision <- rbeta(
+muestras_precision_t0_m3 <- rbeta(
   n = S,
   shape1 = alpha_precision,
   shape2 = beta_precision
 )
 
-muestras_sensibilidad <- rbeta(
+muestras_sensibilidad_t0_m3 <- rbeta(
   n = S,
   shape1 = alpha_sensibilidad,
   shape2 = beta_sensibilidad
@@ -397,10 +419,10 @@ muestras_sensibilidad <- rbeta(
 
 dt_sanity_muestras <- data.table(
   objeto = c("muestras_precision", "muestras_sensibilidad"),
-  n_muestras = c(length(muestras_precision), length(muestras_sensibilidad)),
-  minimo = c(min(muestras_precision), min(muestras_sensibilidad)),
-  maximo = c(max(muestras_precision), max(muestras_sensibilidad)),
-  media = c(mean(muestras_precision), mean(muestras_sensibilidad))
+  n_muestras = c(length(muestras_precision_t0_m3), length(muestras_sensibilidad_t0_m3)),
+  minimo = c(min(muestras_precision_t0_m3), min(muestras_sensibilidad_t0_m3)),
+  maximo = c(max(muestras_precision_t0_m3), max(muestras_sensibilidad_t0_m3)),
+  media = c(mean(muestras_precision_t0_m3), mean(muestras_sensibilidad_t0_m3))
 )
 
 dt_sanity_muestras
@@ -411,13 +433,13 @@ dt_sanity_muestras
 
 # Cálculo de HPDI 95 por ciento con ibUBA
 
-hpdi_precision <- hpdi(muestras_precision, prob = 0.95)
-hpdi_sensibilidad <- hpdi(muestras_sensibilidad, prob = 0.95)
+hpdi_precision_t0_m3 <- hpdi(muestras_precision_t0_m3, prob = 0.95)
+hpdi_sensibilidad_t0_m3 <- hpdi(muestras_sensibilidad_t0_m3, prob = 0.95)
 
 # Inspección de objetos HPDI
 
-hpdi_precision
-hpdi_sensibilidad
+hpdi_precision_t0_m3
+hpdi_sensibilidad_t0_m3
 
 ```
 
@@ -426,25 +448,25 @@ hpdi_sensibilidad
 ```{r}
 # Tabla resumen del posterior de precisión y sensibilidad
 
-dt_posterior_m3_paso2 <- data.table(
+dt_posterior_t0_m3_paso2 <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   metrica = c("precision", "sensibilidad"),
   estimacion_puntual = c(
-    precision_puntual,
-    sensibilidad_puntual
+    precision_puntual_t0_m3,
+    sensibilidad_puntual_t0_m3
   ),
   mediana_posterior = c(
-    median(muestras_precision),
-    median(muestras_sensibilidad)
+    median(muestras_precision_t0_m3),
+    median(muestras_sensibilidad_t0_m3)
   ),
   hpdi_95_inf = c(
-    hpdi_precision[1],
-    hpdi_sensibilidad[1]
+    hpdi_precision_t0_m3[1],
+    hpdi_sensibilidad_t0_m3[1]
   ),
   hpdi_95_sup = c(
-    hpdi_precision[2],
-    hpdi_sensibilidad[2]
+    hpdi_precision_t0_m3[2],
+    hpdi_sensibilidad_t0_m3[2]
   ),
   alpha_posterior = c(
     alpha_precision,
@@ -456,31 +478,31 @@ dt_posterior_m3_paso2 <- data.table(
   )
 )
 
-dt_posterior_m3_paso2
+dt_posterior_t0_m3_paso2
 ```
 
 ```{r}
 # Tabla final para reportar el Paso 2
 
-dt_reporte_paso2 <- data.table(
+dt_reporte_t0_m3_paso2 <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   metrica = c("precision", "sensibilidad"),
-  mediana_posterior = c(
-    median(muestras_precision),
-    median(muestras_sensibilidad)
+  mediana_posterior_t0_m3 = c(
+    median(muestras_precision_t0_m3),
+    median(muestras_sensibilidad_t0_m3)
   ),
-  hpdi_95_inf = c(
-    hpdi_precision["lower"],
-    hpdi_sensibilidad["lower"]
+  hpdi_95_inf_t0_m3 = c(
+    hpdi_precision_t0_m3["lower"],
+    hpdi_sensibilidad_t0_m3["lower"]
   ),
-  hpdi_95_sup = c(
-    hpdi_precision["upper"],
-    hpdi_sensibilidad["upper"]
+  hpdi_95_sup_t0_m3 = c(
+    hpdi_precision_t0_m3["upper"],
+    hpdi_sensibilidad_t0_m3["upper"]
   )
 )
 
-dt_reporte_paso2
+dt_reporte_t0_m3_paso2
 ```
 
 
@@ -490,24 +512,24 @@ dt_reporte_paso2
 # ============================================================
 
 # 1. Crear un dataframe con las muestras para ggplot
-df_muestras <- data.table(
-  precision = muestras_precision,
-  sensibilidad = muestras_sensibilidad
+df_muestras_t0_m3 <- data.table(
+  precision_t0_m3 = muestras_precision_t0_m3,
+  sensibilidad_t0_m3 = muestras_sensibilidad_t0_m3
 ) %>% 
   pivot_longer(cols = everything(), names_to = "metrica", values_to = "valor")
 
 # 2. Gráfico de Posteriores con áreas HPDI sombreadas
 # (Este es el estilo de "La danza de la pava")
 
-ggplot(df_muestras, aes(x = valor, fill = metrica)) +
+ggplot(df_muestras_t0_m3, aes(x = valor, fill = metrica)) +
   # Densidades de las muestras
   geom_density(alpha = 0.5, color = NA) +
   # Líneas de las medias posteriores
-  geom_vline(data = dt_reporte_paso2, aes(xintercept = mediana_posterior, color = metrica), 
+  geom_vline(data = dt_reporte_t0_m3_paso2, aes(xintercept = mediana_posterior_t0_m3, color = metrica), 
              linetype = "dashed", size = 0.8) +
   # Anotación de los intervalos HPDI (barras horizontales inferiores)
-  geom_errorbarh(data = dt_reporte_paso2, 
-                 aes(y = 0, xmin = hpdi_95_inf, xmax = hpdi_95_sup, color = metrica),
+  geom_errorbarh(data = dt_reporte_t0_m3_paso2, 
+                 aes(y = 0, xmin = hpdi_95_inf_t0_m3, xmax = hpdi_95_sup_t0_m3, color = metrica),
                  height = 5, size = 1.2, inherit.aes = FALSE) +
   # Curva Teórica del Prior (Beta 1,1 es una uniforme, se ve como línea tope)
   stat_function(fun = dbeta, args = list(shape1 = 1, shape2 = 1), 
@@ -531,7 +553,7 @@ ggplot(df_muestras, aes(x = valor, fill = metrica)) +
 # 3. Gráfico comparativo de densidades (Facetado)
 # A veces el profe usa facetas para que no se pisen las curvas
 
-ggplot(df_muestras, aes(x = valor, fill = metrica)) +
+ggplot(df_muestras_t0_m3, aes(x = valor, fill = metrica)) +
   geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.3) +
   geom_density(size = 1) +
   facet_wrap(~metrica, scales = "free_y") +
@@ -546,40 +568,42 @@ El modelo 3 es el unico que incluye la variable terminal_risk_score. Y el proble
 Ojo porcentaje de etiquetas. Y si el porcentaje d etiquetado tiene un sesgo.
 
 
-# Paso 3
+# 3 Propag Monte Carlo a F1 T0_m3
 
 ```{r}
 # Paso 3
-muestras_f1 <- 2 * muestras_precision * muestras_sensibilidad / 
-               (muestras_precision + muestras_sensibilidad)
+muestras_f1_t0_m3 <- 2 * muestras_precision_t0_m3 * muestras_sensibilidad_t0_m3 / 
+               (muestras_precision_t0_m3 + muestras_sensibilidad_t0_m3)
 
-mediana_f1 <- median(muestras_f1)
+mediana_f1_t0_m3 <- median(muestras_f1_t0_m3)
 
-hpdi_f1 <- hpdi(muestras_f1, prob = 0.95)
+hpdi_f1_t0_m3 <- hpdi(muestras_f1_t0_m3, prob = 0.95)
 
-hpdi_95_inf_f1 = c(hpdi_f1[1])
-hpdi_95_sup_f1 = c(hpdi_f1[2])
+hpdi_95_inf_f1_t0_m3 = c(hpdi_f1_t0_m3[1])
+hpdi_95_sup_f1_t0_m3 = c(hpdi_f1_t0_m3[2])
+
+
 ```
 
 ```{r}
 # Tabla resumen del posterior de F1 vía Monte Carlo
 
-dt_posterior_f1_m3 <- data.table(
+dt_posterior_f1_t0_m3 <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   metrica = "F1",
-  mediana_posterior = mediana_f1,
-  hpdi_95_inf = hpdi_95_inf_f1,
-  hpdi_95_sup = hpdi_95_sup_f1,
-  f1_puntual_paso1 = round(f1_calculado, 4),
-  cubre_f1_puntual = (hpdi_95_inf_f1 <= f1_calculado) & 
-                     (f1_calculado <= hpdi_95_sup_f1)
+  mediana_posterior_t0_m3 = mediana_f1_t0_m3,
+  hpdi_95_inf_t0_m3 = hpdi_95_inf_f1_t0_m3,
+  hpdi_95_sup_t0_m3 = hpdi_95_sup_f1_t0_m3,
+  f1_puntual_paso1_t0_m3 = round(f1_calculado, 4),
+  cubre_f1_puntual = (hpdi_95_inf_f1_t0_m3 <= f1_calculado) & 
+                     (f1_calculado <= hpdi_95_sup_f1_t0_m3)
 )
 
-dt_posterior_f1_m3
+dt_posterior_f1_t0_m3
 
 ```
-# Paso 4
+# 4 Comp Bayesiana Modelos T0
 
 ```{r}
 # Paso 4
@@ -636,26 +660,279 @@ dt_reporte_paso4
 
 ```{r}
 
+dt_sanity_paso4 <- data.table(
+  chequeo = c(
+    "Todos los modelos fueron procesados",
+    "Todas las F1 están entre 0 y 1",
+    "Todos los HPDI cubren el F1 puntual",
+    "M3 tiene la mayor mediana posterior de F1"
+  ),
+  resultado = c(
+    nrow(dt_reporte_paso4) == length(nombres_modelos),
+    all(dt_reporte_paso4$mediana_F1 >= 0 & dt_reporte_paso4$mediana_F1 <= 1),
+    all(dt_reporte_paso4$cubre_f1_puntual),
+    dt_reporte_paso4[which.max(mediana_F1), modelo] == "M3_gbm_completo"
+  )
+)
+
+dt_sanity_paso4
+
 ```
+
+# 5 Trayectoria F1/mes/modelo/18M
+
+```{r}
+# Paso 5
+# Trayectoria mensual de F1 posterior por modelo
+
+set.seed(20260424)
+
+S_mensual <- 50000
+
+dt_metricas_temporales <- fread("datos/v6/metricas_temporales.csv")
+
+names(dt_metricas_temporales)
+
+```
+
+```{r}
+# Inspección inicial de estructura
+
+dt_sanity_metricas_temporales <- data.table(
+  n_filas = nrow(dt_metricas_temporales),
+  n_columnas = ncol(dt_metricas_temporales),
+  mes_minimo = min(dt_metricas_temporales$mes, na.rm = TRUE),
+  mes_maximo = max(dt_metricas_temporales$mes, na.rm = TRUE),
+  n_modelos = uniqueN(dt_metricas_temporales$modelo)
+)
+
+dt_sanity_metricas_temporales
+```
+
+```{r}
+# Selección del horizonte principal del caso
+
+dt_metricas_temporales_1_18 <- dt_metricas_temporales[
+  mes >= 1 & mes <= 18
+]
+
+dt_sanity_metricas_temporales_1_18 <- dt_metricas_temporales_1_18[
+  ,
+  .(
+    n_meses = uniqueN(mes),
+    mes_minimo = min(mes),
+    mes_maximo = max(mes),
+    n_modelos = uniqueN(modelo),
+    n_celdas_modelo_mes = .N
+  )
+]
+
+dt_sanity_metricas_temporales_1_18
+```
+
+```{r}
+# Reconstrucción de conteos mensuales
+
+dt_conteos_mensuales <- copy(dt_metricas_temporales_1_18)
+
+dt_conteos_mensuales[
+  ,
+  TP := round(recall * n_fraude)
+]
+
+dt_conteos_mensuales[
+  ,
+  FN := n_fraude - TP
+]
+
+dt_conteos_mensuales[
+  ,
+  FP := round(TP * (1 / precision - 1))
+]
+
+dt_conteos_mensuales[
+  ,
+  f1_recalculado := (2 * TP) / ((2 * TP) + FP + FN)
+]
+```
+
+
+```{r}
+dt_sanity_conteos_mensuales <- dt_conteos_mensuales[
+  ,
+  .(
+    n_filas = .N,
+    TP_min = min(TP, na.rm = TRUE),
+    FP_min = min(FP, na.rm = TRUE),
+    FN_min = min(FN, na.rm = TRUE),
+    diferencia_max_f1 = max(abs(f1 - f1_recalculado), na.rm = TRUE)
+  )
+]
+
+dt_sanity_conteos_mensuales
+
+```
+
+
+```{r}
+# Función para posterior F1 mensual
+
+calcular_posterior_f1_mensual <- function(dt_celda, S = 50000) {
+  
+  modelo_celda <- dt_celda$modelo[1]
+  mes_celda <- dt_celda$mes[1]
+  
+  TP_mes_modelo <- dt_celda$TP[1]
+  FP_mes_modelo <- dt_celda$FP[1]
+  FN_mes_modelo <- dt_celda$FN[1]
+  
+  muestras_precision_mes_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_mes_modelo,
+    shape2 = 1 + FP_mes_modelo
+  )
+  
+  muestras_sensibilidad_mes_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_mes_modelo,
+    shape2 = 1 + FN_mes_modelo
+  )
+  
+  muestras_f1_mes_modelo <- 2 * muestras_precision_mes_modelo * muestras_sensibilidad_mes_modelo /
+    (muestras_precision_mes_modelo + muestras_sensibilidad_mes_modelo)
+  
+  hpdi_f1_mes_modelo <- hpdi(muestras_f1_mes_modelo, prob = 0.95)
+  
+  data.table(
+    modelo = modelo_celda,
+    mes = mes_celda,
+    TP = TP_mes_modelo,
+    FP = FP_mes_modelo,
+    FN = FN_mes_modelo,
+    f1_puntual = dt_celda$f1_recalculado[1],
+    mediana_f1 = median(muestras_f1_mes_modelo),
+    hpdi_95_inf = hpdi_f1_mes_modelo["lower"],
+    hpdi_95_sup = hpdi_f1_mes_modelo["upper"]
+  )
+}
+```
+
+
+```{r}
+# Cálculo posterior para cada combinación mes-modelo
+
+dt_resumen_f1_mensual <- dt_conteos_mensuales[
+  ,
+  calcular_posterior_f1_mensual(.SD, S = S_mensual),
+  by = .(modelo, mes)
+]
+
+dt_resumen_f1_mensual[order(modelo, mes)]
+```
+
+```{r}
+# Sanity check del resumen mensual
+
+dt_sanity_resumen_f1_mensual <- data.table(
+  chequeo = c(
+    "Hay 18 meses",
+    "Hay 5 modelos",
+    "Hay 90 celdas modelo-mes",
+    "Las medianas F1 están entre 0 y 1",
+    "Los HPDI inferiores son menores que los superiores"
+  ),
+  resultado = c(
+    uniqueN(dt_resumen_f1_mensual$mes) == 18,
+    uniqueN(dt_resumen_f1_mensual$modelo) == 5,
+    nrow(dt_resumen_f1_mensual) == 90,
+    all(dt_resumen_f1_mensual$mediana_f1 >= 0 & dt_resumen_f1_mensual$mediana_f1 <= 1),
+    all(dt_resumen_f1_mensual$hpdi_95_inf <= dt_resumen_f1_mensual$hpdi_95_sup)
+  )
+)
+
+dt_sanity_resumen_f1_mensual
+```
+
+
+```{r}
+# Gráfico de trayectoria mensual con HPDI 95 por ciento
+
+grafico_f1_mensual <- ggplot(
+  dt_resumen_f1_mensual,
+  aes(x = mes, y = mediana_f1, color = modelo, fill = modelo)
+) +
+  geom_ribbon(
+    aes(ymin = hpdi_95_inf, ymax = hpdi_95_sup),
+    alpha = 0.12,
+    color = NA
+  ) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.8) +
+  geom_vline(xintercept = 12, linetype = "dashed", color = "gray35") +
+  geom_vline(xintercept = 13, linetype = "dashed", color = "gray35") +
+  geom_vline(xintercept = 16, linetype = "dashed", color = "gray35") +
+  annotate("text", x = 12, y = 1, label = "fin T0", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 13, y = 1, label = "inicio T1", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 16, y = 1, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
+  scale_x_continuous(breaks = 1:18) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(
+    title = "Trayectoria mensual de F1 posterior por modelo",
+    subtitle = "Mediana posterior con HPDI 95 por ciento. Meses 1 a 18",
+    x = "Mes",
+    y = "F1 posterior",
+    color = "Modelo",
+    fill = "Modelo"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+# Guardado del gráfico de trayectoria mensual de F1
+
+archivo_grafico_f1_mensual <- file.path(
+  directorio_graficos,
+  "paso_5_trayectoria_mensual_f1_posterior_modelos_hpdi_95.png"
+)
+
+ggsave(
+  filename = archivo_grafico_f1_mensual,
+  plot = grafico_f1_mensual,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_f1_mensual)
+
+
+grafico_f1_mensual
+```
+
 
 ```{r}
 
 ```
 
-```{r}
-
-```
 
 ```{r}
 
 ```
 
----
+
+```{r}
+
+```
 
 
+```{r}
 
+```
 
-# A PARTIR DE ACÁ ES LA NOTEBOOK DEL PROFE
+# ------------------------------------------
+# A PARTIR DE ACÁ NOTEBOOK PROFE
 # PRACTICO 06
 
 ## Preparación de los datos
