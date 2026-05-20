@@ -1058,7 +1058,7 @@ grafico_f1_secuencial <- ggplot(
 
 archivo_grafico_f1_secuencial <- file.path(
   directorio_graficos,
-  "complemento_trayectoria_secuencial_f1_posterior_modelos_hpdi_95.png"
+  "paso_5_bis_trayectoria_secuencial_f1_posterior_modelos_hpdi_95.png"
 )
 
 ggsave(
@@ -1069,8 +1069,11 @@ ggsave(
   dpi = 300
 )
 
-file.exists(archivo_grafico_f1_secuencial)
-
+#file.exists(archivo_grafico_f1_secuencial)
+data.table(
+  existe = file.exists(archivo_grafico_f1_secuencial),
+  ruta_absoluta = normalizePath(archivo_grafico_f1_secuencial, mustWork = FALSE)
+)
 
 grafico_f1_secuencial
 ```
@@ -1377,7 +1380,10 @@ grafico_densidades_f1_ventana_operativa <- ggplot(
   ) +
   scale_color_manual(values = paleta_modelos) +
   scale_fill_manual(values = paleta_modelos) +
-  scale_x_continuous(labels = scales::percent) +
+  #scale_x_continuous(labels = scales::percent) +
+  scale_x_continuous(
+  limits = c(0, 0.4)
+)+
   labs(
     title = "Densidades posteriores de F1 en ventana operativa 16_18",
     subtitle = "Distribuciones posteriores por modelo. Líneas punteadas: medianas posteriores",
