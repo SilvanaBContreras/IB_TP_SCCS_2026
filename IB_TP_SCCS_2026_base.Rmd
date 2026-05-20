@@ -221,6 +221,21 @@ dt_sanity_directorio_graficos <- data.table(
 dt_sanity_directorio_graficos
 ```
 
+# paleta colores
+
+```{r}
+# Paleta común para modelos
+
+modelos_ordenados <- sort(unique(dt_resumen_f1_mensual$modelo))
+
+paleta_modelos <- setNames(
+  scales::hue_pal()(length(modelos_ordenados)),
+  modelos_ordenados
+)
+
+paleta_modelos
+```
+
 ## 1 Reconstrucción de F1 en T0_m3
 
 ```{r}
@@ -561,11 +576,7 @@ ggplot(df_muestras_t0_m3, aes(x = valor, fill = metrica)) +
   theme_bw() +
   labs(title = "Detalle por métrica (Posterior)", x = "Valor", y = "Densidad")
 ```
-Observamos que el modelo 3 tiene mayor precisión que sensibilidad en T0. Es decir es un modelo conservador. Que minimiza los falsos positivos. 
 
-El modelo 3 es el unico que incluye la variable terminal_risk_score. Y el problema de smishing se da a nivel de las terminales. 
-
-Ojo porcentaje de etiquetas. Y si el porcentaje d etiquetado tiene un sesgo.
 
 
 # 3 Propag Monte Carlo a F1 T0_m3
@@ -854,6 +865,11 @@ dt_sanity_resumen_f1_mensual
 ```
 
 
+No hicimos actualización secuencial mes a mes. Cada mes se estimó de manera independiente, siempre partiendo del mismo prior uniforme Beta(1, 1). 
+No usamos posterior de un mes como prior del mes siguiente, porque eso suavizaría el cambio de régimen que queremos detectar en este punto de la guía de trabajo.
+Una posterior acumulativa podría seguir creyendo demasiado en el modelo porque arrastra mucha evidencia histórica de T0.
+Paradoja: el peligro de confiar en agregados históricos cuando el régimen cambió.
+
 ```{r}
 # Gráfico de trayectoria mensual con HPDI 95 por ciento
 
@@ -876,19 +892,22 @@ grafico_f1_mensual <- ggplot(
   annotate("text", x = 16, y = 1, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
   scale_x_continuous(breaks = 1:18) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_color_manual(values = paleta_modelos) +
+  scale_fill_manual(values = paleta_modelos) +
+  guides(fill = "none") +
   labs(
-    title = "Trayectoria mensual de F1 posterior por modelo",
+    title = "Trayectoria mensual de F1 posterior independiente por modelo",
     subtitle = "Mediana posterior con HPDI 95 por ciento. Meses 1 a 18",
     x = "Mes",
     y = "F1 posterior",
-    color = "Modelo",
-    fill = "Modelo"
+    color = "Modelo"
   ) +
   theme_bw() +
   theme(
     legend.position = "bottom",
     panel.grid.minor = element_blank()
   )
+
 
 # Guardado del gráfico de trayectoria mensual de F1
 
@@ -909,27 +928,755 @@ file.exists(archivo_grafico_f1_mensual)
 
 
 grafico_f1_mensual
+
+```
+
+# 5bis Trayectoria acum posterior
+
+Ahora calculamos el mesa a mes actualizando la prior de cada mes con la posterior del anterior. l
+
+```{r}
+# Posterior secuencial acumulada por modelo y mes
+
+set.seed(20260424)
+
+S_secuencial <- 50000
+
+dt_conteos_mensuales_ordenado <- copy(dt_conteos_mensuales)
+setorder(dt_conteos_mensuales_ordenado, modelo, mes)
+
+dt_conteos_mensuales_ordenado[
+  ,
+  `:=`(
+    TP_acum = cumsum(TP),
+    FP_acum = cumsum(FP),
+    FN_acum = cumsum(FN)
+  ),
+  by = modelo
+]
+
+dt_conteos_mensuales_ordenado[
+  ,
+  f1_puntual_acum := (2 * TP_acum) / ((2 * TP_acum) + FP_acum + FN_acum)
+]
+```
+
+```{r}
+# Función para posterior f1 secuencial
+
+calcular_posterior_f1_secuencial <- function(dt_celda, S = 50000) {
+  
+  modelo_celda <- dt_celda$modelo[1]
+  mes_celda <- dt_celda$mes[1]
+  
+  TP_acum_mes_modelo <- dt_celda$TP_acum[1]
+  FP_acum_mes_modelo <- dt_celda$FP_acum[1]
+  FN_acum_mes_modelo <- dt_celda$FN_acum[1]
+  
+  muestras_precision_secuencial_mes_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_acum_mes_modelo,
+    shape2 = 1 + FP_acum_mes_modelo
+  )
+  
+  muestras_recall_secuencial_mes_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_acum_mes_modelo,
+    shape2 = 1 + FN_acum_mes_modelo
+  )
+  
+  muestras_f1_secuencial_mes_modelo <- 2 * muestras_precision_secuencial_mes_modelo * muestras_recall_secuencial_mes_modelo /
+    (muestras_precision_secuencial_mes_modelo + muestras_recall_secuencial_mes_modelo)
+  
+  hpdi_f1_secuencial_mes_modelo <- hpdi(muestras_f1_secuencial_mes_modelo, prob = 0.95)
+  
+  data.table(
+    modelo = modelo_celda,
+    mes = mes_celda,
+    TP_acum = TP_acum_mes_modelo,
+    FP_acum = FP_acum_mes_modelo,
+    FN_acum = FN_acum_mes_modelo,
+    f1_puntual_acum = dt_celda$f1_puntual_acum[1],
+    mediana_f1 = median(muestras_f1_secuencial_mes_modelo),
+    hpdi_95_inf = hpdi_f1_secuencial_mes_modelo["lower"],
+    hpdi_95_sup = hpdi_f1_secuencial_mes_modelo["upper"]
+  )
+}
+```
+
+```{r}
+# Cálculo de posterior secuencial por modelo y mes
+
+dt_resumen_f1_secuencial <- dt_conteos_mensuales_ordenado[
+  ,
+  calcular_posterior_f1_secuencial(.SD, S = S_secuencial),
+  by = .(modelo, mes)
+]
+
+dt_resumen_f1_secuencial[order(modelo, mes)]
+```
+
+```{r}
+# Gráfico de trayectoria secuencial con HPDI 95 por ciento
+
+grafico_f1_secuencial <- ggplot(
+  dt_resumen_f1_secuencial,
+  aes(x = mes, y = mediana_f1, color = modelo, fill = modelo)
+) +
+  geom_ribbon(
+    aes(ymin = hpdi_95_inf, ymax = hpdi_95_sup),
+    alpha = 0.12,
+    color = NA
+  ) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.8) +
+  geom_vline(xintercept = 12, linetype = "dashed", color = "gray35") +
+  geom_vline(xintercept = 13, linetype = "dashed", color = "gray35") +
+  geom_vline(xintercept = 16, linetype = "dashed", color = "gray35") +
+  annotate("text", x = 12, y = 1, label = "fin T0", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 13, y = 1, label = "inicio T1", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 16, y = 1, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
+  scale_x_continuous(breaks = 1:18) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_color_manual(values = paleta_modelos) +
+  scale_fill_manual(values = paleta_modelos) +
+  guides(fill = "none") +
+  labs(
+    title = "Trayectoria secuencial de F1 posterior por modelo",
+    subtitle = "Posterior acumulada hasta cada mes. Mediana posterior con HPDI 95 por ciento",
+    x = "Mes",
+    y = "F1 posterior acumulada",
+    color = "Modelo"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+# Guardado del gráfico de trayectoria secuencial
+
+archivo_grafico_f1_secuencial <- file.path(
+  directorio_graficos,
+  "complemento_trayectoria_secuencial_f1_posterior_modelos_hpdi_95.png"
+)
+
+ggsave(
+  filename = archivo_grafico_f1_secuencial,
+  plot = grafico_f1_secuencial,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_f1_secuencial)
+
+
+grafico_f1_secuencial
+```
+```{r}
+# Chequeo de f1 mensual y f1 acumulada
+
+dt_chequeo_f1_secuencial <- dt_conteos_mensuales_ordenado[
+  ,
+  .(
+    modelo,
+    mes,
+    TP,
+    FP,
+    FN,
+    f1_mensual_recalculado = (2 * TP) / ((2 * TP) + FP + FN),
+    f1_csv = f1,
+    TP_acum,
+    FP_acum,
+    FN_acum,
+    f1_acum_recalculado = (2 * TP_acum) / ((2 * TP_acum) + FP_acum + FN_acum),
+    f1_puntual_acum
+  )
+]
+
+dt_chequeo_f1_secuencial[
+  ,
+  diferencia_f1_mensual_csv := abs(f1_mensual_recalculado - f1_csv)
+]
+
+dt_chequeo_f1_secuencial[
+  ,
+  diferencia_f1_acum := abs(f1_acum_recalculado - f1_puntual_acum)
+]
+
+dt_chequeo_f1_secuencial[
+  order(-diferencia_f1_mensual_csv)
+][1:10]
+```
+```{r}
+# Resumen de diferencias por modelo
+
+dt_resumen_chequeo_f1_secuencial <- dt_chequeo_f1_secuencial[
+  ,
+  .(
+    diferencia_max_f1_mensual_csv = max(diferencia_f1_mensual_csv, na.rm = TRUE),
+    diferencia_media_f1_mensual_csv = mean(diferencia_f1_mensual_csv, na.rm = TRUE),
+    diferencia_max_f1_acum = max(diferencia_f1_acum, na.rm = TRUE),
+    f1_acum_mes_18 = f1_acum_recalculado[mes == 18]
+  ),
+  by = modelo
+]
+
+dt_resumen_chequeo_f1_secuencial[
+  order(-f1_acum_mes_18)
+]
+```
+```{r}
+# Chequeo específico de M3
+
+dt_chequeo_m3_secuencial <- dt_chequeo_f1_secuencial[
+  modelo == "M3_gbm_completo",
+  .(
+    mes,
+    TP,
+    FP,
+    FN,
+    f1_mensual_recalculado,
+    f1_csv,
+    TP_acum,
+    FP_acum,
+    FN_acum,
+    f1_acum_recalculado
+  )
+]
+
+dt_chequeo_m3_secuencial
+```
+
+```{r}
+View(dt_chequeo_m3_secuencial)
+
+```
+
+
+
+
+# 6.1 Posteriores agregadas ventana operativa 16_18
+
+si julio 2025 se decide bajo el régimen ya estabilizado, qué modelo domina a cuál con evidencia bayesiana.
+
+```{r}
+
+# Paso 6.1
+# Posteriores agregadas de f1 en ventana operativa 16_18
+
+set.seed(20260424)
+
+S_ventana_operativa <- 50000
+
+dt_conteos_ventana_operativa <- dt_conteos_mensuales[
+  mes >= 16 & mes <= 18,
+  .(
+    TP = sum(TP),
+    FP = sum(FP),
+    FN = sum(FN),
+    n_fraude = sum(n_fraude),
+    n = sum(n)
+  ),
+  by = modelo
+]
+
+dt_conteos_ventana_operativa[
+  ,
+  f1_puntual := (2 * TP) / ((2 * TP) + FP + FN)
+]
+
+dt_conteos_ventana_operativa[
+  order(-f1_puntual)
+]
+```
+
+```{r}
+# Función para posterior f1 agregada por modelo en ventana operativa
+
+calcular_posterior_f1_ventana_operativa <- function(dt_modelo, S = 50000) {
+  
+  modelo_ventana <- dt_modelo$modelo[1]
+  
+  TP_ventana_modelo <- dt_modelo$TP[1]
+  FP_ventana_modelo <- dt_modelo$FP[1]
+  FN_ventana_modelo <- dt_modelo$FN[1]
+  
+  muestras_precision_ventana_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_ventana_modelo,
+    shape2 = 1 + FP_ventana_modelo
+  )
+  
+  muestras_recall_ventana_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_ventana_modelo,
+    shape2 = 1 + FN_ventana_modelo
+  )
+  
+  muestras_f1_ventana_modelo <- 2 * muestras_precision_ventana_modelo * muestras_recall_ventana_modelo /
+    (muestras_precision_ventana_modelo + muestras_recall_ventana_modelo)
+  
+  hpdi_f1_ventana_modelo <- hpdi(muestras_f1_ventana_modelo, prob = 0.95)
+  
+  data.table(
+    modelo = modelo_ventana,
+    TP = TP_ventana_modelo,
+    FP = FP_ventana_modelo,
+    FN = FN_ventana_modelo,
+    f1_puntual = dt_modelo$f1_puntual[1],
+    mediana_f1 = median(muestras_f1_ventana_modelo),
+    hpdi_95_inf = hpdi_f1_ventana_modelo["lower"],
+    hpdi_95_sup = hpdi_f1_ventana_modelo["upper"]
+  )
+}
+
+```
+
+```{r}
+# Cálculo de resumen posterior para ventana operativa
+
+dt_resumen_f1_ventana_operativa <- dt_conteos_ventana_operativa[
+  ,
+  calcular_posterior_f1_ventana_operativa(.SD, S = S_ventana_operativa),
+  by = modelo
+]
+
+dt_resumen_f1_ventana_operativa[
+  order(-mediana_f1)
+]
+```
+
+```{r}
+# Gráfico de medianas posteriores con HPDI 95 %
+
+grafico_forest_f1_ventana_operativa <- ggplot(
+  dt_resumen_f1_ventana_operativa[
+    ,
+    modelo := factor(modelo, levels = modelo[order(mediana_f1)])
+  ],
+  aes(x = mediana_f1, y = modelo)
+) +
+  geom_linerange(
+    aes(xmin = hpdi_95_inf, xmax = hpdi_95_sup),
+    linewidth = 1.1,
+    color = "gray35"
+  ) +
+  geom_point(size = 3) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(
+    title = "F1 posterior en ventana operativa 16_18",
+    subtitle = "Mediana posterior e HPDI 95 por ciento",
+    x = "F1 posterior",
+    y = "Modelo"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+
+# Guardado del gráfico de F1 posterior en ventana operativa
+
+archivo_grafico_forest_f1_ventana_operativa <- file.path(
+  directorio_graficos,
+  "paso_6_1_forest_f1_posterior_ventana_operativa_16_18_hpdi_95.png"
+)
+
+ggsave(
+  filename = archivo_grafico_forest_f1_ventana_operativa,
+  plot = grafico_forest_f1_ventana_operativa,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_forest_f1_ventana_operativa)
+
+
+grafico_forest_f1_ventana_operativa
+```
+
+
+# 6.2 Densidades posteriores f1 ventana operativa
+
+
+```{r}
+# Muestras posteriores de f1 para ventana operativa 16_18
+
+set.seed(20260424)
+
+generar_muestras_f1_ventana_operativa <- function(dt_modelo, S = 50000) {
+  
+  modelo_ventana <- dt_modelo$modelo[1]
+  
+  TP_ventana_modelo <- dt_modelo$TP[1]
+  FP_ventana_modelo <- dt_modelo$FP[1]
+  FN_ventana_modelo <- dt_modelo$FN[1]
+  
+  muestras_precision_16_18_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_ventana_modelo,
+    shape2 = 1 + FP_ventana_modelo
+  )
+  
+  muestras_recall_16_18_modelo <- rbeta(
+    n = S,
+    shape1 = 1 + TP_ventana_modelo,
+    shape2 = 1 + FN_ventana_modelo
+  )
+  
+  muestras_f1_16_18_modelo <- 2 * muestras_precision_16_18_modelo * muestras_recall_16_18_modelo /
+    (muestras_precision_16_18_modelo + muestras_recall_16_18_modelo)
+  
+  data.table(
+    modelo = modelo_ventana,
+    f1 = muestras_f1_16_18_modelo
+  )
+}
+
+dt_muestras_f1_ventana_operativa <- dt_conteos_ventana_operativa[
+  ,
+  generar_muestras_f1_ventana_operativa(.SD, S = S_ventana_operativa),
+  by = modelo
+]
+```
+
+```{r}
+# Sanity check de muestras posteriores
+
+dt_sanity_muestras_f1_ventana_operativa <- dt_muestras_f1_ventana_operativa[
+  ,
+  .(
+    n_muestras = .N,
+    f1_min = min(f1),
+    f1_max = max(f1),
+    f1_mediana = median(f1)
+  ),
+  by = modelo
+]
+
+dt_sanity_muestras_f1_ventana_operativa
+```
+
+```{r}
+# Gráfico de densidades posteriores de f1
+
+grafico_densidades_f1_ventana_operativa <- ggplot(
+  dt_muestras_f1_ventana_operativa,
+  aes(x = f1, color = modelo, fill = modelo)
+) +
+  geom_density(alpha = 0.18, linewidth = 1) +
+  geom_vline(
+    data = dt_resumen_f1_ventana_operativa,
+    aes(xintercept = mediana_f1, color = modelo),
+    linetype = "dashed",
+    linewidth = 0.7,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(values = paleta_modelos) +
+  scale_fill_manual(values = paleta_modelos) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(
+    title = "Densidades posteriores de F1 en ventana operativa 16_18",
+    subtitle = "Distribuciones posteriores por modelo. Líneas punteadas: medianas posteriores",
+    x = "F1 posterior",
+    y = "Densidad",
+    color = "Modelo",
+    fill = "Modelo"
+  ) +
+  guides(fill = "none") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    legend.box = "horizontal",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(10, 10, 20, 10)
+  )
+
+grafico_densidades_f1_ventana_operativa
+
+
+# Guardado del gráfico de densidades posteriores
+
+archivo_grafico_densidades_f1_ventana_operativa <- file.path(
+  directorio_graficos,
+  "paso_6_2_densidades_f1_posterior_ventana_operativa_16_18.png"
+)
+
+ggsave(
+  filename = archivo_grafico_densidades_f1_ventana_operativa,
+  plot = grafico_densidades_f1_ventana_operativa,
+  width = 11,
+  height = 8,
+  dpi = 300
+)
+
+
+grafico_densidades_f1_ventana_operativa
+
+
+```
+
+# 6.3 Matriz de dominancia bayesiana
+
+```{r}
+
+# Sanity check de muestras para matriz de dominancia
+
+dt_sanity_muestras_dominancia <- dt_muestras_f1_ventana_operativa[
+  ,
+  .(
+    n_muestras = .N,
+    f1_min = min(f1),
+    f1_max = max(f1),
+    f1_mediana = median(f1)
+  ),
+  by = modelo
+]
+
+dt_sanity_muestras_dominancia
 ```
 
 
 ```{r}
+# Creación de índice de simulación por modelo
 
+dt_muestras_f1_dominancia <- copy(dt_muestras_f1_ventana_operativa)
+
+dt_muestras_f1_dominancia[
+  ,
+  simulacion := seq_len(.N),
+  by = modelo
+]
+
+# Conversión a formato ancho para comparar muestras alineadas
+
+dt_muestras_f1_dominancia_ancho <- dcast(
+  dt_muestras_f1_dominancia,
+  simulacion ~ modelo,
+  value.var = "f1"
+)
+
+dt_muestras_f1_dominancia_ancho[1:5]
+
+```
+
+```{r}
+# Cálculo de matriz de dominancia bayesiana
+
+matriz_dominancia_f1 <- matrix(
+  NA_real_,
+  nrow = length(modelos_dominancia),
+  ncol = length(modelos_dominancia),
+  dimnames = list(modelos_dominancia, modelos_dominancia)
+)
+
+for (modelo_i in modelos_dominancia) {
+  for (modelo_j in modelos_dominancia) {
+    matriz_dominancia_f1[modelo_i, modelo_j] <- mean(
+      dt_muestras_f1_dominancia_ancho[[modelo_i]] >
+        dt_muestras_f1_dominancia_ancho[[modelo_j]]
+    )
+  }
+}
+
+matriz_dominancia_f1
 ```
 
 
 ```{r}
+# Conversión de matriz a data.table larga
 
+dt_matriz_dominancia_f1 <- as.data.table(
+  as.table(matriz_dominancia_f1)
+)
+
+setnames(
+  dt_matriz_dominancia_f1,
+  old = c("V1", "V2", "N"),
+  new = c("modelo_fila", "modelo_columna", "prob_dominancia")
+)
+
+dt_matriz_dominancia_f1[
+  ,
+  prob_dominancia_pct := round(100 * prob_dominancia, 1)
+]
+
+dt_matriz_dominancia_f1[]
 ```
 
 
 ```{r}
+# Sanity check de matriz de dominancia
 
+dt_sanity_matriz_dominancia <- data.table(
+  chequeo = c(
+    "La matriz tiene 25 celdas",
+    "La diagonal es 0",
+    "Las probabilidades están entre 0 y 1",
+    "Las probabilidades complementarias suman aproximadamente 1"
+  ),
+  resultado = c(
+    nrow(dt_matriz_dominancia_f1) == 25,
+    all(diag(matriz_dominancia_f1) == 0),
+    all(dt_matriz_dominancia_f1$prob_dominancia >= 0 & dt_matriz_dominancia_f1$prob_dominancia <= 1),
+    all(abs(matriz_dominancia_f1 + t(matriz_dominancia_f1) - 1) < 0.02 | row(matriz_dominancia_f1) == col(matriz_dominancia_f1))
+  )
+)
+
+dt_sanity_matriz_dominancia
 ```
 
 
 ```{r}
+# Orden de modelos según mediana posterior en ventana operativa
+
+orden_modelos_dominancia <- dt_resumen_f1_ventana_operativa[
+  order(mediana_f1),
+  modelo
+]
+
+dt_matriz_dominancia_f1[
+  ,
+  modelo_fila := factor(modelo_fila, levels = orden_modelos_dominancia)
+]
+
+dt_matriz_dominancia_f1[
+  ,
+  modelo_columna := factor(modelo_columna, levels = orden_modelos_dominancia)
+]
+```
+
+
+```{r}
+# Gráfico de matriz de dominancia bayesiana
+
+# Gráfico de matriz de dominancia bayesiana
+
+grafico_matriz_dominancia_f1 <- ggplot(
+  dt_matriz_dominancia_f1,
+  aes(x = modelo_columna, y = modelo_fila, fill = prob_dominancia)
+) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(
+    aes(label = paste0(prob_dominancia_pct, "%")),
+    size = 3.5
+  ) +
+  scale_fill_gradient(
+    low = "white",
+    high = "#2C7FB8",
+    labels = scales::percent,
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Matriz de dominancia bayesiana en ventana operativa 16_18",
+    subtitle = "Cada celda indica P(F1 modelo fila > F1 modelo columna)",
+    x = "Modelo comparado",
+    y = "Modelo fila",
+    fill = "Probabilidad"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+
+
+# Guardado del gráfico de matriz de dominancia
+
+archivo_grafico_matriz_dominancia_f1 <- file.path(
+  directorio_graficos,
+  "paso_6_3_matriz_dominancia_bayesiana_f1_ventana_operativa_16_18.png"
+)
+
+ggsave(
+  filename = archivo_grafico_matriz_dominancia_f1,
+  plot = grafico_matriz_dominancia_f1,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_matriz_dominancia_f1)
+
+grafico_matriz_dominancia_f1
+
+
 
 ```
+
+# 6 extra KL M4 versus M2 en 16-18
+```{r}
+
+# Función para KL discreta entre dos vectores de muestras
+
+calcular_kl_muestras <- function(muestras_p, muestras_q, cortes, epsilon = 1e-12) {
+  
+  hist_p <- hist(muestras_p, breaks = cortes, plot = FALSE)
+  hist_q <- hist(muestras_q, breaks = cortes, plot = FALSE)
+  
+  prob_p <- hist_p$counts / sum(hist_p$counts)
+  prob_q <- hist_q$counts / sum(hist_q$counts)
+  
+  prob_p <- prob_p + epsilon
+  prob_q <- prob_q + epsilon
+  
+  prob_p <- prob_p / sum(prob_p)
+  prob_q <- prob_q / sum(prob_q)
+  
+  sum(prob_p * log(prob_p / prob_q))
+}
+
+```
+
+```{r}
+# KL entre M4 y M2 usando las muestras ya calculadas en 6.2
+
+cortes_f1_kl_m4_m2 <- seq(0, 1, length.out = 501)
+
+muestras_f1_16_18_m4 <- dt_muestras_f1_ventana_operativa[
+  modelo == "M4_gbm_moderado",
+  f1
+]
+
+muestras_f1_16_18_m2 <- dt_muestras_f1_ventana_operativa[
+  modelo == "M2_random_forest",
+  f1
+]
+
+kl_m4_vs_m2 <- calcular_kl_muestras(
+  muestras_p = muestras_f1_16_18_m4,
+  muestras_q = muestras_f1_16_18_m2,
+  cortes = cortes_f1_kl_m4_m2
+)
+
+kl_m2_vs_m4 <- calcular_kl_muestras(
+  muestras_p = muestras_f1_16_18_m2,
+  muestras_q = muestras_f1_16_18_m4,
+  cortes = cortes_f1_kl_m4_m2
+)
+
+dt_kl_m4_m2 <- data.table(
+  comparacion = c(
+    "KL M4 || M2",
+    "KL M2 || M4",
+    "KL simetrizada M4-M2"
+  ),
+  valor_kl = c(
+    kl_m4_vs_m2,
+    kl_m2_vs_m4,
+    kl_m4_vs_m2 + kl_m2_vs_m4
+  )
+)
+
+dt_kl_m4_m2
+```
+
 
 # ------------------------------------------
 # A PARTIR DE ACÁ NOTEBOOK PROFE
