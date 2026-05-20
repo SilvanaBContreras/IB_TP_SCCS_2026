@@ -298,6 +298,7 @@ dt_sanity_checks
 
 ```
 ## paso 2 M3 primer posterior
+
 ```{r}
 
 # Carga de conteos de M3 en T0 validación
@@ -538,6 +539,14 @@ ggplot(df_muestras, aes(x = valor, fill = metrica)) +
   theme_bw() +
   labs(title = "Detalle por métrica (Posterior)", x = "Valor", y = "Densidad")
 ```
+Observamos que el modelo 3 tiene mayor precisión que sensibilidad en T0. Es decir es un modelo conservador. Que minimiza los falsos positivos. 
+
+El modelo 3 es el unico que incluye la variable terminal_risk_score. Y el problema de smishing se da a nivel de las terminales. 
+
+Ojo porcentaje de etiquetas. Y si el porcentaje d etiquetado tiene un sesgo.
+
+
+# Paso 3
 
 ```{r}
 # Paso 3
@@ -570,6 +579,7 @@ dt_posterior_f1_m3 <- data.table(
 dt_posterior_f1_m3
 
 ```
+# Paso 4
 
 ```{r}
 # Paso 4
@@ -645,6 +655,7 @@ dt_reporte_paso4
 
 
 
+# A PARTIR DE ACÁ ES LA NOTEBOOK DEL PROFE
 # PRACTICO 06
 
 ## Preparación de los datos
@@ -1022,6 +1033,9 @@ También podemos ver el valor de $\hat{R}$ en el `summary` (ver siguiente secci�
 
 ## 3.5 Effective Sample Size (ESS, Tamaño Efectivo de la Muestra)
 
+SIL : porque si exploré todas cosas muy parecidas, la información efectiva que tengo disminuye respecto de las iteraciones. esta métrica te dice si hiciste 8000 iteraciones pero 4500 fueron efectivas. 
+
+
 El **ESS** mide cuántas muestras independientes efectivas tenemos, descontando la autocorrelación de la cadena. Si tenemos muchas muestras pero cada muestra está altamente correlacionada con la anterior, el ESS sería mucho menor. `brms` reporta dos ESSs:
 
 - **Bulk ESS**: mide la exploración de la región central de la posterior (región de mayor densidad).
@@ -1032,6 +1046,8 @@ Se recomienda que las ESS sean similares entre sí e iguales o mayores a 400 por
 ```{r ess, fig.height=3.5, fig.width=8}
 summary(m_brms)
 ```
+SIL
+Rhat estadístico de convergencia: si es 1 convergieron bien. 
 
 **Pregunta:** Supongamos que tenemos dos modelos:
 
