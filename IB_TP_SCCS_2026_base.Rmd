@@ -38,8 +38,6 @@ library(bayesplot)
 library(scales)
 library(ibUBA)
 
-
-
 set.seed(42)
 
 # Paleta del curso
@@ -58,7 +56,6 @@ print("ATENCIÓN: Este .rmd es un EXTRACTO de la práctica 6 para usar como temp
 #quité el ejercicio 2
 #quité explicaciones pedagógicas
 #no toqué código
-
   
 ```
 
@@ -70,16 +67,22 @@ print("La URL del caso está en: https://anfora.netlify.app/")
 ```
 
 ```{r}
-install.packages(c(
-  "tidyverse",
-  "jsonlite",
-  "ggplot2",
-  "posterior",
-"nanoparquet"))
+# 1. Definís la lista de paquetes que necesitás
+paquetes <- c("tidyverse", "jsonlite", "ggplot2", "posterior", "nanoparquet")
+
+# 2. Identificás cuáles NO están instalados en el sistema
+paquetes_faltantes <- paquetes[!(paquetes %in% installed.packages()[, "Package"])]
+
+# 3. Si hay alguno que falta, lo instala
+if (length(paquetes_faltantes) > 0) {
+  install.packages(paquetes_faltantes)
+} else {
+  print("¡Todos los paquetes ya están instalados!")
+}
   
 ```
 
-## descarga datos TP CASO 2
+## Descarga datos TP CASO 2
 
 ```{r}
 
@@ -226,11 +229,19 @@ dt_sanity_directorio_graficos
 ```{r}
 # Paleta común para modelos
 
-modelos_ordenados <- sort(unique(dt_resumen_f1_mensual$modelo))
+nombres_modelos <- c(
+  "M1_logistica",
+  "M2_random_forest",
+  "M3_gbm_completo",
+  "M4_gbm_moderado",
+  "M5_naive_bayes"
+)
+
+# modelos_ordenados <- sort(unique(dt_resumen_f1_mensual$modelo))
 
 paleta_modelos <- setNames(
-  scales::hue_pal()(length(modelos_ordenados)),
-  modelos_ordenados
+  scales::hue_pal()(length(nombres_modelos)),
+  nombres_modelos
 )
 
 paleta_modelos
@@ -334,7 +345,7 @@ dt_sanity_checks
 
 ```
 
-# 2 Posteriores Beta-Binomial T0_m3
+# 2 Posteriors Beta-Binomial T0_m3
 
 ```{r}
 
@@ -578,8 +589,7 @@ ggplot(df_muestras_t0_m3, aes(x = valor, fill = metrica)) +
 ```
 
 
-
-# 3 Propag Monte Carlo a F1 T0_m3
+# 3 Propagacion Monte Carlo a F1 T0_m3
 
 ```{r}
 # Paso 3
@@ -614,7 +624,7 @@ dt_posterior_f1_t0_m3 <- data.table(
 dt_posterior_f1_t0_m3
 
 ```
-# 4 Comp Bayesiana Modelos T0
+# 4 Posteriors F1 y simulacion Monte Carlo para todos los modelos en T0
 
 ```{r}
 # Paso 4
@@ -653,14 +663,6 @@ analisis_modelo_T0 <- function(nombre_modelo, metricas_T0, S = 50000) {
 
 # Aplicar a los cinco modelos
 set.seed(20260424)
-
-nombres_modelos <- c(
-  "M1_logistica",
-  "M2_random_forest",
-  "M3_gbm_completo",
-  "M4_gbm_moderado",
-  "M5_naive_bayes"
-)
 
 dt_reporte_paso4 <- rbindlist(
   lapply(nombres_modelos, analisis_modelo_T0, metricas_T0 = metricas_T0)
@@ -887,9 +889,9 @@ grafico_f1_mensual <- ggplot(
   geom_vline(xintercept = 12, linetype = "dashed", color = "gray35") +
   geom_vline(xintercept = 13, linetype = "dashed", color = "gray35") +
   geom_vline(xintercept = 16, linetype = "dashed", color = "gray35") +
-  annotate("text", x = 12, y = 1, label = "fin T0", angle = 90, vjust = -0.4, size = 3) +
-  annotate("text", x = 13, y = 1, label = "inicio T1", angle = 90, vjust = -0.4, size = 3) +
-  annotate("text", x = 16, y = 1, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 12, y = 0.9, label = "fin T0", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 13, y = 0.9, label = "inicio T1", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 16, y = 0.8, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
   scale_x_continuous(breaks = 1:18) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
   scale_color_manual(values = paleta_modelos) +
@@ -1033,9 +1035,9 @@ grafico_f1_secuencial <- ggplot(
   geom_vline(xintercept = 12, linetype = "dashed", color = "gray35") +
   geom_vline(xintercept = 13, linetype = "dashed", color = "gray35") +
   geom_vline(xintercept = 16, linetype = "dashed", color = "gray35") +
-  annotate("text", x = 12, y = 1, label = "fin T0", angle = 90, vjust = -0.4, size = 3) +
-  annotate("text", x = 13, y = 1, label = "inicio T1", angle = 90, vjust = -0.4, size = 3) +
-  annotate("text", x = 16, y = 1, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 12, y = 0.9, label = "fin T0", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 13, y = 0.9, label = "inicio T1", angle = 90, vjust = -0.4, size = 3) +
+  annotate("text", x = 16, y = 0.85, label = "ventana operativa", angle = 90, vjust = -0.4, size = 3) +
   scale_x_continuous(breaks = 1:18) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
   scale_color_manual(values = paleta_modelos) +
@@ -1476,13 +1478,13 @@ dt_muestras_f1_dominancia_ancho[1:5]
 
 matriz_dominancia_f1 <- matrix(
   NA_real_,
-  nrow = length(modelos_dominancia),
-  ncol = length(modelos_dominancia),
-  dimnames = list(modelos_dominancia, modelos_dominancia)
+  nrow = length(nombres_modelos),
+  ncol = length(nombres_modelos),
+  dimnames = list(nombres_modelos, nombres_modelos)
 )
 
-for (modelo_i in modelos_dominancia) {
-  for (modelo_j in modelos_dominancia) {
+for (modelo_i in nombres_modelos) {
+  for (modelo_j in nombres_modelos) {
     matriz_dominancia_f1[modelo_i, modelo_j] <- mean(
       dt_muestras_f1_dominancia_ancho[[modelo_i]] >
         dt_muestras_f1_dominancia_ancho[[modelo_j]]
