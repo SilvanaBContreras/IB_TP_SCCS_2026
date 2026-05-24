@@ -1657,7 +1657,8 @@ dt_kl_m4_m2
 rm(muestras_f1_16_18_m4, muestras_f1_16_18_m2, cortes_f1_kl_m4_m2, kl_m4_vs_m2, kl_m2_vs_m4, dt_muestras_f1_dominancia, dt_muestras_f1_ventana_operativa, dt_conteos_mensuales)
 ```
 
-Paso 7
+Paso 7:
+Analisis del dataset de operaciones para chequear balance de clases entre conjunto de entrenamiento y validacion y las etiquetas.
 
 ```{r}
 dt_operaciones <- as.data.table(read_parquet("datos/v6/operaciones.parquet"))
@@ -1688,6 +1689,7 @@ dt_operaciones[is.na(flag_t1),    flag_t1    := FALSE]
 rm(dt_train, dt_val, dt_T1)
 ```
 
+Analisis de cantidad de operaciones por mes, y porcentaje de entrenamiento y validacion
 ```{r}
 # Realizar el conteo agrupado por mes
 dt_resumen_mes <- dt_operaciones[, .(
@@ -1700,6 +1702,11 @@ dt_resumen_mes <- dt_operaciones[, .(
 # Ver el resultado ordenado por mes (opcional)
 dt_resumen_mes[order(mes, etiquetado)]
 ```
+
+Se analiza el balance de clases entre entrenamiento y validacion para descartar problemas a la hora de realizar el muestreo.
+
+Se observa una diferencia pero seguramente se debe a la escasa cantidad de fraudes.
+Se observa que en etiquetado == FALSE hay casos con es_fraude == TRUE. Averiguar con Franco a que se debe?
 
 ```{r}
 # Calcular la tasa de fraude en Train y Validation por Mes y Etiquetado
@@ -1725,6 +1732,13 @@ dt_balance_fraude <- dt_operaciones[, .(
 dt_balance_fraude[order(mes, etiquetado)]
 ```
 
+Se analizan las 6 features disponibles del dataset agrupado por mes, separado entre entrenamiento y validacion en T0 y filtrando unicamente etiquetado == TRUE para descartar los casos no etiquetados (Se podria probar incluir una linea con etiquetado == FALSE para ver si hay algun insight escondido).
+
+Se separan los analisis entre features continuas y categoricas para analizar su relacion con la target.
+Para las features categoricas: para cada categoria se calcula la tasa de fraudes mensualmente
+Para las features continuas: se arman quintiles y se calcula la tasa de fraudes mensualmente. Por otro lado se calcula el valor medio de las variables para analizar el drift.
+
+
 ```{r}
 
 # 1. Definir features
@@ -1748,7 +1762,7 @@ cortes_X <- c(12.5, 15.5, 18.5)
 #   texto = c("Fin T0", "Ventana Operativa", "Fin T1") # Cambiá los textos por lo que necesites
 # )
 
-# 3. Bucle para Variables Categóricas
+# Bucle para Variables Categóricas
 for (col in features_categoricas) {
   
   dt_plot_cat <- dt_filtrado[, .(
@@ -1768,7 +1782,7 @@ for (col in features_categoricas) {
     geom_point(size = 1.5) +
     facet_wrap(~ categoria, scales = "free_y", ncol = 2) +
     labs(
-      title = paste("Evolución de la Tasa de Fraude por Mes - Feature:", col),
+      title = paste("Evolución temporal de la tasa de fraude por categoria - feature:", col),
       x = "Mes",
       y = "Tasa de Fraude (%)",
       color = "Partición"
@@ -1784,7 +1798,50 @@ for (col in features_categoricas) {
   print(p)
 }
 
-# 4. Bucle para Variables Continuas
+# Analisis de features continuas con quintiles
+for (col in features_continuas) {
+  
+  # 1. Creamos los rangos (bins) basados en los cortes globales de la variable
+  cortes <- quantile(dt_filtrado[[col]], probs = seq(0, 1, by = 0.2), na.rm = TRUE)
+  cortes <- unique(cortes) 
+  
+  dt_temp <- dt_filtrado[, .(mes = as.numeric(mes), particion, es_fraude, valor = get(col))]
+  
+  # Asignamos el rango correspondiente a cada registro
+  dt_temp[, rango := cut(valor, breaks = cortes, include.lowest = TRUE, include.inf = TRUE)]
+  
+  # 2. Agrupamos por mes, partición y rango para calcular la tasa de fraude
+  dt_plot_cont_target <- dt_temp[!is.na(rango), .(
+    tasa_fraude = (sum(es_fraude, na.rm = TRUE) / .N) * 100
+  ), by = .(mes, particion, rango)]
+  
+  # 3. Graficamos: Cada panel (facet) es un rango de la variable. 
+  p_cont <- ggplot(dt_plot_cont_target, aes(x = mes, y = tasa_fraude, group = particion, color = particion)) +
+    geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
+    # geom_text(data = anotaciones, aes(x = x, y = Inf, label = texto), 
+    #           inherit.aes = FALSE, vjust = 1.5, hjust = -0.1, angle = 0, color = "darkgray", size = 3, fontface = "italic") +
+    geom_line(linewidth = 1) +
+    geom_point(size = 1.5) +
+    # Abrimos un panel por cada rango de la variable continua
+    facet_wrap(~ rango, scales = "free_y") + 
+    labs(
+      title = paste("Evolución temporal de la tasa de fraude por quintiles - feature:", col),
+      x = "Mes",
+      y = "Tasa de Fraude (%) en el Rango",
+      color = "Partición"
+    ) +
+    scale_color_manual(values = c("Train" = "#1f77b4", "Val" = "#ff7f0e", "T1" = "#2ca02c")) +
+    scale_x_continuous(n.breaks = 6) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p_cont)
+}
+
+# Valor medio en features continuas
 for (col in features_continuas) {
   
   dt_plot_cont <- dt_filtrado[es_fraude == TRUE, .(
@@ -1792,7 +1849,6 @@ for (col in features_continuas) {
   ), by = .(mes = as.numeric(mes), particion)]
   
   p_cont <- ggplot(dt_plot_cont, aes(x = mes, y = valor_medio, group = particion, color = particion)) +
-    # NUEVO: Líneas verticales para el gráfico continuo
     geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
     
     geom_line(linewidth = 1) +
@@ -1801,7 +1857,7 @@ for (col in features_continuas) {
     #           color = "darkgray", size = 3, fontface = "italic") +
     geom_point(size = 1.5) +
     labs(
-      title = paste("Evolución del Valor Medio en Fraudes - Feature:", col),
+      title = paste("Evolución del valor medio en fraudes (es_fraude==TRUE) - feature:", col),
       x = "Mes",
       y = paste("Media de", col),
       color = "Partición"
@@ -1817,9 +1873,157 @@ for (col in features_continuas) {
   print(p_cont)
 }
 
-rm(dt_filtrado, dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont, 
+rm(dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont, 
    dt_balance_fraude, dt_resumen_mes, dt_resumen_mes_etiqueta,
-   cortes_X, anotaciones, features_categoricas, features_continuas, p, p_cont, col)
+   anotaciones, p, p_cont, col)
+
+```
+
+Se analiza el PSI (Population Stability Index) para cada feature continua, lo cual permite analizar si hay drift.
+Primero se realiza a nivel total del dataset, incluyendo las transacciones fraudulentas y las normales, pero aqui no se observa drift.
+
+```{r}
+
+lista_psi_temporal <- list()
+
+for (col in features_continuas) {
+  
+  # 1. Nuestra BASE real: El Mes 1 (reemplazar por el número de tu primer mes si no empieza en 1)
+  mes_base <- 1
+  
+  # 2. Calcular cortes basados ÚNICAMENTE en la foto del Mes 1
+  cortes_base <- quantile(dt_filtrado[mes == mes_base, get(col)], 
+                          probs = seq(0, 1, by = 0.1), na.rm = TRUE)
+  cortes_base <- unique(cortes_base)
+  
+  # 3. Asignar los rangos a todo el dataset filtrado
+  dt_psi_temp <- dt_filtrado[, .(mes = as.numeric(mes), valor = get(col))]
+  dt_psi_temp[, rango := cut(valor, breaks = cortes_base, include.lowest = TRUE, include.inf = TRUE)]
+  
+  # 4. Distribución porcentual esperada del Mes Base (Actual)
+  dist_base <- dt_psi_temp[mes == mes_base & !is.na(rango), .(N_base = .N), by = .(rango)]
+  dist_base[, pct_base := N_base / sum(N_base)]
+  
+  # 5. Distribución porcentual de CADA MES (Expected)
+  dist_meses <- dt_psi_temp[!is.na(rango), .(N_mes = .N), by = .(mes, rango)]
+  dist_meses[, pct_mes := N_mes / sum(N_mes), by = .(mes)]
+  
+  # 6. Cruzamos cada mes contra la base fija del Mes 1
+  dt_merge <- merge(dist_meses, dist_base[, .(rango, pct_base)], by = "rango", all.x = TRUE)
+  
+  # Ajustes de estabilidad por si algún porcentaje da cero
+  dt_merge[is.na(pct_base) | pct_base == 0, pct_base := 0.0001]
+  dt_merge[is.na(pct_mes) | pct_mes == 0, pct_mes := 0.0001]
+  
+  # 7. Fórmula del PSI Temporal
+  dt_merge[, psi_parcial := (pct_base - pct_mes) * log(pct_base / pct_mes)]
+  
+  # Sumamos los parciales por mes
+  dt_psi_final <- dt_merge[, .(PSI = sum(psi_parcial)), by = .(mes)]
+  dt_psi_final[, feature := col]
+  
+  lista_psi_temporal[[col]] <- dt_psi_final
+}
+
+# Unificamos resultados cronológicos
+dt_psi_temporal_res <- rbindlist(lista_psi_temporal)
+
+# Ver el desvío del negocio mes a mes
+dt_psi_temporal_res[order(feature, mes)]
+```
+
+Realizamos el mismo analisis pero ahora filtrando las operaciones fraudulentas y ahora si vemos el drift marcado en ambas features.
+
+```{r}
+
+lista_psi_fraude <- list()
+
+for (col in features_continuas) {
+  
+  mes_base <- 1
+  
+  # 1. Filtramos el dataset para quedarnos SOLO con los casos de fraude
+  dt_fraudes <- dt_filtrado[es_fraude == TRUE, .(mes = as.numeric(mes), valor = get(col))]
+  
+  # 2. Los cortes de los deciles se calculan con los fraudes del Mes 1
+  cortes_base <- quantile(dt_fraudes[mes == mes_base, valor], 
+                          probs = seq(0, 1, by = 0.1), na.rm = TRUE)
+  cortes_base <- unique(cortes_base)
+  
+  # 3. Asignamos los rangos basados en la estructura del fraude base
+  dt_fraudes[, rango := cut(valor, breaks = cortes_base, include.lowest = TRUE, include.inf = TRUE)]
+  
+  # 4. Distribución porcentual del fraude en el Mes Base (Actual)
+  dist_base <- dt_fraudes[mes == mes_base & !is.na(rango), .(N_base = .N), by = .(rango)]
+  dist_base[, pct_base := N_base / sum(N_base)]
+  
+  # 5. Distribución porcentual del fraude en cada uno de los meses (Expected)
+  dist_meses <- dt_fraudes[!is.na(rango), .(N_mes = .N), by = .(mes, rango)]
+  dist_meses[, pct_mes := N_mes / sum(N_mes), by = .(mes)]
+  
+  # 6. Cruzamos el histórico del fraude contra su base
+  dt_merge <- merge(dist_meses, dist_base[, .(rango, pct_base)], by = "rango", all.x = TRUE)
+  
+  # Estabilización por si algún decil se queda sin fraudes en un mes específico
+  dt_merge[is.na(pct_base) | pct_base == 0, pct_base := 0.0001]
+  dt_merge[is.na(pct_mes) | pct_mes == 0, pct_mes := 0.0001]
+  
+  # 7. Cálculo del PSI de Fraude
+  dt_merge[, psi_parcial := (pct_base - pct_mes) * log(pct_base / pct_mes)]
+  
+  dt_psi_final <- dt_merge[, .(PSI_fraude = sum(psi_parcial)), by = .(mes)]
+  dt_psi_final[, feature := col]
+  
+  lista_psi_fraude[[col]] <- dt_psi_final
+}
+
+# Unificamos el resultado del comportamiento del fraude
+dt_psi_fraude_res <- rbindlist(lista_psi_fraude)
+
+# Ver el resultado en consola
+dt_psi_fraude_res[order(feature, mes)]
+
+```
+
+Graficamos las series para visualizarlas
+
+```{r}
+# Crear el gráfico de evolución del PSI de Fraude
+p_psi <- ggplot(dt_psi_fraude_res, aes(x = mes, y = PSI_fraude)) +
+  
+  # Líneas de control de la industria (Semáforo de estabilidad)
+  geom_hline(yintercept = 0.10, color = "#ff7f0e", lty = "dashed", linewidth = 0.7) + # Alerta moderada
+  geom_hline(yintercept = 0.25, color = "#d62728", lty = "dashed", linewidth = 0.8) + # Drift crítico
+  
+  # Líneas verticales que ya venías usando para tus hitos temporales
+  geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dotted", linewidth = 0.6) +
+  # geom_text(data = anotaciones, aes(x = x, y = Inf, label = texto), 
+  #           inherit.aes = FALSE, vjust = 1.5, hjust = -0.1, angle = 0, color = "darkgray", size = 3, fontface = "italic") +
+  
+  # Curva de PSI
+  geom_line(color = "#1f77b4", linewidth = 1.2) +
+  geom_point(color = "#1f77b4", size = 2) +
+  
+  # Un panel para cada variable continua
+  facet_wrap(~ feature, scales = "free_y", ncol = 1) + 
+  
+  # Configuración de etiquetas y diseño
+  labs(
+    title = "Evolución Temporal del Population Stability Index (PSI) en Población de Fraude",
+    subtitle = "Base de comparación fija: Mes 1 (Líneas punteadas indican umbrales de alerta de 0.10 y 0.25)",
+    x = "Mes",
+    y = "PSI (vs Mes 1)"
+  ) +
+  scale_x_continuous(n.breaks = 6) + 
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 11, face = "bold"), # Estilo del título de cada panel
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 9)
+  )
+
+# Mostrar el gráfico en RStudio
+print(p_psi)
 
 ```
 
