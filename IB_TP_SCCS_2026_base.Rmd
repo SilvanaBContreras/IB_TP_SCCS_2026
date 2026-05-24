@@ -138,6 +138,11 @@ urls_datos <- list(
     destino = "datos/v6/operaciones.parquet"
   ),
   
+  operaciones_T1_etiquetadas = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T1_etiquetadas.parquet",
+    destino = "datos/v6/operaciones_T1_etiquetadas.parquet"
+  ),
+  
   # Modelos serializados
   modelo_M1 = list(
     url = "https://anfora.netlify.app/datos/v6/modelos/M1_logistica.pkl",
@@ -2027,6 +2032,69 @@ print(p_psi)
 
 ```
 
+```{r}
+
+# Corremos el bucle solo para las categóricas, aislando el fraude
+for (col in features_categoricas) {
+  
+  # 1. Filtrar solo los fraudes y contar la frecuencia por mes y categoría
+  dt_plot_cat_fraude <- dt_filtrado[es_fraude == TRUE, .(
+    frecuencia_fraude = .N
+  ), by = .(mes = as.numeric(mes), categoria = as.factor(get(col)))]
+  
+  # 2. Gráfico de barras apiladas al 100% para ver la proporción interna mensual
+  p_cat_share <- ggplot(dt_plot_cat_fraude, aes(x = mes, y = frecuencia_fraude, fill = categoria)) +
+    
+    # Líneas verticales de control de hitos (se dibujan de fondo)
+    geom_vline(xintercept = cortes_X, color = "black", lty = "dotted", linewidth = 0.6, alpha = 0.5) +
+    
+    # El truco acá es position = "fill", que escala las barras automáticamente al 100%
+    geom_bar(stat = "identity", position = "fill", width = 0.7) +
+    
+    # Configuración de etiquetas y formato
+    labs(
+      title = paste("Distribución Proporcional del Fraude por Mes - Feature:", col),
+      subtitle = "Análisis de operaciones fraudulentas",
+      x = "Mes",
+      y = "Proporción del Total de Fraudes",
+      fill = "Categoría"
+    ) +
+    scale_x_continuous(n.breaks = 6) +
+    # Formatea el eje Y para mostrar porcentajes (0% a 100%)
+    scale_y_continuous(labels = scales::percent_format()) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      panel.grid.minor = element_blank(),
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p_cat_share)
+}
+
+# Limpieza rápida del objeto del gráfico del entorno
+rm(dt_plot_cat_fraude, p_cat_share)
+gc()
+```
+```{r}
+
+p_box_conjunto <- ggplot(dt_filtrado, aes(x = canal, y = terminal_risk_score, fill = canal)) +
+  geom_boxplot(alpha = 0.7, outlier.size = 1, outlier.alpha = 0.3) +
+  labs(
+    title = "Distribución de Terminal Risk Score por Canal",
+    subtitle = "Análisis conjunto de feature continua y discreta",
+    x = "Canal",
+    y = "Terminal Risk Score"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none", # Sacamos la leyenda porque ya está el nombre en el eje X
+    panel.grid.minor = element_blank()
+  )
+
+print(p_box_conjunto)
+
+```
 
 # ------------------------------------------
 # A PARTIR DE ACÁ NOTEBOOK PROFE
