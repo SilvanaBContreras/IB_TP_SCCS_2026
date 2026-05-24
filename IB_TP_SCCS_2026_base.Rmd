@@ -15,7 +15,23 @@ header-includes:
   - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
 ---
 
+```{r}
+# 1. Definís la lista de paquetes que necesitás
+paquetes <- c("tidyverse", "jsonlite", "ggplot2", "posterior", "nanoparquet", "arrow")
 
+# 2. Identificás cuáles NO están instalados en el sistema
+paquetes_faltantes <- paquetes[!(paquetes %in% installed.packages()[, "Package"])]
+
+# 3. Si hay alguno que falta, lo instala
+if (length(paquetes_faltantes) > 0) {
+  install.packages(paquetes_faltantes)
+} else {
+  print("¡Todos los paquetes ya están instalados!")
+}
+
+rm(paquetes, paquetes_faltantes)
+  
+```
 
 ```{r setup, include=FALSE}
 rm(list = ls())
@@ -38,6 +54,7 @@ library(bayesplot)
 library(scales)
 library(ibUBA)
 library(jsonlite)
+library(arrow)
 
 set.seed(42)
 
@@ -69,23 +86,6 @@ print("La URL del caso está en: https://anfora.netlify.app/")
   
 ```
 
-```{r}
-# 1. Definís la lista de paquetes que necesitás
-paquetes <- c("tidyverse", "jsonlite", "ggplot2", "posterior", "nanoparquet")
-
-# 2. Identificás cuáles NO están instalados en el sistema
-paquetes_faltantes <- paquetes[!(paquetes %in% installed.packages()[, "Package"])]
-
-# 3. Si hay alguno que falta, lo instala
-if (length(paquetes_faltantes) > 0) {
-  install.packages(paquetes_faltantes)
-} else {
-  print("¡Todos los paquetes ya están instalados!")
-}
-
-rm(paquetes, paquetes_faltantes)
-  
-```
 
 ## Descarga datos TP CASO 2
 
@@ -1655,6 +1655,172 @@ dt_kl_m4_m2 <- data.table(
 dt_kl_m4_m2
 
 rm(muestras_f1_16_18_m4, muestras_f1_16_18_m2, cortes_f1_kl_m4_m2, kl_m4_vs_m2, kl_m2_vs_m4, dt_muestras_f1_dominancia, dt_muestras_f1_ventana_operativa, dt_conteos_mensuales)
+```
+
+Paso 7
+
+```{r}
+dt_operaciones <- as.data.table(read_parquet("datos/v6/operaciones.parquet"))
+
+# 1. Forzamos de manera segura que sean data.table nativos al leerlos
+dt_train <- as.data.table(read_parquet("datos/v6/operaciones_T0_train.parquet", col_select = "op_id"))
+dt_val   <- as.data.table(read_parquet("datos/v6/operaciones_T0_valid.parquet", col_select = "op_id"))
+dt_T1    <- as.data.table(read_parquet("datos/v6/operaciones_T1.parquet", col_select = "op_id"))
+
+# Creamos un flag indicador en las tablas secundarias
+dt_train[, flag_train := TRUE]
+dt_val[, flag_val := TRUE]
+dt_T1[, flag_t1 := TRUE]
+
+# Ponemos una clave (llave) en dt_operaciones para que el join vuele
+setkey(dt_operaciones, op_id)
+
+# Hacemos los joins por referencia (modifican dt_operaciones "in-place")
+dt_operaciones[dt_train, flag_train := flag_train, on = .(op_id)]
+dt_operaciones[dt_val, flag_val := flag_val, on = .(op_id)]
+dt_operaciones[dt_T1, flag_t1 := flag_t1, on = .(op_id)]
+
+# Reemplazar los NA por FALSE 
+dt_operaciones[is.na(flag_train), flag_train := FALSE]
+dt_operaciones[is.na(flag_val),   flag_val   := FALSE]
+dt_operaciones[is.na(flag_t1),    flag_t1    := FALSE]
+
+rm(dt_train, dt_val, dt_T1)
+```
+
+```{r}
+# Realizar el conteo agrupado por mes
+dt_resumen_mes <- dt_operaciones[, .(
+  total_registros = .N,                          # Cuenta el total de filas por mes
+  pct_train       = (sum(flag_train, na.rm = TRUE) / .N) * 100,
+  pct_val         = (sum(flag_val, na.rm = TRUE) / .N) * 100,
+  pct_t1          = (sum(flag_t1, na.rm = TRUE) / .N) * 100
+), by = .(mes, etiquetado)]
+
+# Ver el resultado ordenado por mes (opcional)
+dt_resumen_mes[order(mes, etiquetado)]
+```
+
+```{r}
+# Calcular la tasa de fraude en Train y Validation por Mes y Etiquetado
+dt_balance_fraude <- dt_operaciones[, .(
+  total_registros = .N,
+  
+  # Cantidad total de fraudes en este subgrupo mensual/etiquetado
+  total_fraudes = sum(es_fraude, na.rm = FALSE),
+  
+  # % de fraude general en ese mes/etiquetado
+  pct_fraude_total = (sum(es_fraude, na.rm = FALSE) / .N) * 100,
+  
+  # % de fraude DENTRO del set de Train
+  # (Suma de fraudes en train / Total de registros en train)
+  pct_fraude_train = (sum(es_fraude & flag_train, na.rm = FALSE) / sum(flag_train, na.rm = FALSE)) * 100,
+  
+  # % de fraude DENTRO del set de Validation
+  # (Suma de fraudes en val / Total de registros en val)
+  pct_fraude_val   = (sum(es_fraude & flag_val, na.rm = FALSE) / sum(flag_val, na.rm = FALSE)) * 100
+), by = .(mes, etiquetado)]
+
+# Ver el resultado ordenado para comparar ojo a ojo
+dt_balance_fraude[order(mes, etiquetado)]
+```
+
+```{r}
+
+# 1. Definir features
+features_categoricas <- c("canal", "hora_bin", "dispositivo", "secuencia_24h")
+features_continuas   <- c("monto_log", "terminal_risk_score")
+
+# 2. Filtrar por etiquetado y crear la columna de partición
+dt_filtrado <- dt_operaciones[etiquetado == TRUE]
+
+dt_filtrado[, particion := fifelse(flag_train == TRUE, "Train",
+                           fifelse(flag_val == TRUE, "Val", 
+                           fifelse(flag_t1 == TRUE, "T1", "Otros")))]
+
+dt_filtrado <- dt_filtrado[particion != "Otros"]
+
+# Vector con las posiciones de las líneas verticales que quieres agregar
+cortes_X <- c(12.5, 15.5, 18.5)
+
+# anotaciones <- data.frame(
+#   x = c(12.5, 15.5, 18.5),
+#   texto = c("Fin T0", "Ventana Operativa", "Fin T1") # Cambiá los textos por lo que necesites
+# )
+
+# 3. Bucle para Variables Categóricas
+for (col in features_categoricas) {
+  
+  dt_plot_cat <- dt_filtrado[, .(
+    tasa_fraude = (sum(es_fraude, na.rm = TRUE) / .N) * 100
+  ), by = .(mes = as.numeric(mes), categoria = get(col), particion)]
+  
+  p <- ggplot(dt_plot_cat, aes(x = mes, y = tasa_fraude, 
+                               group = interaction(categoria, particion), 
+                               color = particion)) +
+    # NUEVO: Líneas verticales de fondo (las ponemos primero para que las líneas de datos queden arriba)
+    geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
+    
+    geom_line(linewidth = 1) +
+    # geom_text(data = anotaciones, aes(x = x, y = Inf, label = texto), 
+    #           inherit.aes = FALSE, vjust = 1.5, hjust = -0.1, angle=0,
+    #           color = "darkgray", size = 3, fontface = "italic") +
+    geom_point(size = 1.5) +
+    facet_wrap(~ categoria, scales = "free_y", ncol = 2) +
+    labs(
+      title = paste("Evolución de la Tasa de Fraude por Mes - Feature:", col),
+      x = "Mes",
+      y = "Tasa de Fraude (%)",
+      color = "Partición"
+    ) +
+    scale_color_manual(values = c("Train" = "#1f77b4", "Val" = "#ff7f0e", "T1" = "#2ca02c")) +
+    scale_x_continuous(n.breaks = 6) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p)
+}
+
+# 4. Bucle para Variables Continuas
+for (col in features_continuas) {
+  
+  dt_plot_cont <- dt_filtrado[es_fraude == TRUE, .(
+    valor_medio = mean(get(col), na.rm = TRUE)
+  ), by = .(mes = as.numeric(mes), particion)]
+  
+  p_cont <- ggplot(dt_plot_cont, aes(x = mes, y = valor_medio, group = particion, color = particion)) +
+    # NUEVO: Líneas verticales para el gráfico continuo
+    geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
+    
+    geom_line(linewidth = 1) +
+    # geom_text(data = anotaciones, aes(x = x, y = Inf, label = texto), 
+    #           inherit.aes = FALSE, vjust = 1.5, hjust = -0.1, angle=0,
+    #           color = "darkgray", size = 3, fontface = "italic") +
+    geom_point(size = 1.5) +
+    labs(
+      title = paste("Evolución del Valor Medio en Fraudes - Feature:", col),
+      x = "Mes",
+      y = paste("Media de", col),
+      color = "Partición"
+    ) +
+    scale_color_manual(values = c("Train" = "#1f77b4", "Val" = "#ff7f0e", "T1" = "#2ca02c")) +
+    scale_x_continuous(n.breaks = 6) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p_cont)
+}
+
+rm(dt_filtrado, dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont, 
+   dt_balance_fraude, dt_resumen_mes, dt_resumen_mes_etiqueta,
+   cortes_X, anotaciones, features_categoricas, features_continuas, p, p_cont, col)
+
 ```
 
 
