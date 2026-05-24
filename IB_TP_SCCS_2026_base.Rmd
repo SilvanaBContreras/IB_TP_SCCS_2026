@@ -37,6 +37,7 @@ library(brms)
 library(bayesplot)
 library(scales)
 library(ibUBA)
+library(jsonlite)
 
 set.seed(42)
 
@@ -48,6 +49,8 @@ col_purpura <- unname(pal["purple"])
 col_celeste <- unname(pal["blue"])
 col_verde   <- unname(pal["green"])
 col_gris    <- "#95A5A6"
+
+rm(pal)
 ```
 
 ```{r}
@@ -79,6 +82,8 @@ if (length(paquetes_faltantes) > 0) {
 } else {
   print("¡Todos los paquetes ya están instalados!")
 }
+
+rm(paquetes, paquetes_faltantes)
   
 ```
 
@@ -201,6 +206,8 @@ for (nombre in names(urls_datos)) {
   )
 }
 
+rm(urls_datos, descargar_si_no_existe, nombre)
+
 ```
 
 # directorio para graficos
@@ -215,13 +222,11 @@ dir.create(
   recursive = TRUE
 )
 
-dt_sanity_directorio_graficos <- data.table(
+data.table(
   directorio = directorio_graficos,
   existe = dir.exists(directorio_graficos),
   ruta_absoluta = normalizePath(directorio_graficos)
 )
-
-dt_sanity_directorio_graficos
 ```
 
 # paleta colores
@@ -237,8 +242,6 @@ nombres_modelos <- c(
   "M5_naive_bayes"
 )
 
-# modelos_ordenados <- sort(unique(dt_resumen_f1_mensual$modelo))
-
 paleta_modelos <- setNames(
   scales::hue_pal()(length(nombres_modelos)),
   nombres_modelos
@@ -250,8 +253,6 @@ paleta_modelos
 ## 1 Reconstrucción de F1 en T0_m3
 
 ```{r}
-library(data.table)
-library(jsonlite)
 
 ruta_metricas_T0 <- "datos/v6/modelos/metricas_T0_validacion.json"
 metricas_T0 <- fromJSON(ruta_metricas_T0)
@@ -259,14 +260,15 @@ metricas_T0 <- fromJSON(ruta_metricas_T0)
 names(metricas_T0)
 length(metricas_T0)
 
+rm(ruta_metricas_T0)
+
 ```
 
 
 ```{r}
 
 m3_T0_validacion <- metricas_T0$M3_gbm_completo$T0_validacion
-dt_m3_T0 <- as.data.table(as.list(m3_T0_validacion))
-dt_m3_T0
+as.data.table(as.list(m3_T0_validacion))
 
 ```
 
@@ -286,7 +288,7 @@ f1_calculado_t0_m3 <- (2 * TP) / ((2 * TP) + FP + FN)
 f1_reportado_t0_m3 <- m3_T0_validacion$f1
 
 # Tabla de control
-dt_control_t0_m3 <- data.table(
+data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   TP = TP,
@@ -297,8 +299,6 @@ dt_control_t0_m3 <- data.table(
   f1_reportado = f1_reportado_t0_m3,
   diferencia = f1_calculado_t0_m3 - f1_reportado_t0_m3
 )
-
-dt_control_t0_m3
 
 ```
 
@@ -326,7 +326,7 @@ check_conteos_suman_n <- (TP + FP + FN + TN) == n_validacion
 n_fraude <- m3_T0_validacion$n_fraude
 check_fraudes_suman <- (TP + FN) == n_fraude
 
-dt_sanity_checks <- data.table(
+data.table(
   chequeo = c(
     "F1 calculado coincide con F1 reportado",
     "F1 calculado redondea a 0.842",
@@ -341,24 +341,16 @@ dt_sanity_checks <- data.table(
   )
 )
 
-dt_sanity_checks
+rm(f1_reportado_t0_m3, check_fraudes_suman, check_f1_coincide, check_f1_0842, check_conteos_suman_n, n_validacion)
 
 ```
 
 # 2 Posteriors Beta-Binomial T0_m3
 
 ```{r}
-
-# Carga de conteos de M3 en T0 validación
-
-TP <- m3_T0_validacion$TP
-FP <- m3_T0_validacion$FP
-FN <- m3_T0_validacion$FN
-TN <- m3_T0_validacion$TN
-
 # Sanity check de conteos
 
-dt_conteos_t0_m3 <- data.table(
+data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   TP = TP,
@@ -366,8 +358,6 @@ dt_conteos_t0_m3 <- data.table(
   FN = FN,
   TN = TN
 )
-
-dt_conteos_t0_m3
 
 ```
 
@@ -378,14 +368,12 @@ dt_conteos_t0_m3
 precision_puntual_t0_m3 <- TP / (TP + FP)
 sensibilidad_puntual_t0_m3 <- TP / (TP + FN)
 
-dt_metricas_puntuales_t0_m3 <- data.table(
+data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   precision_puntual = precision_puntual_t0_m3, #proporción de alertas del modelo que efectivamente eran fraude.
   sensibilidad_puntual = sensibilidad_puntual_t0_m3 #proporción de fraudes reales que el modelo logró detectar
 )
-
-dt_metricas_puntuales_t0_m3
 
 ```
 
@@ -411,13 +399,11 @@ beta_precision <- beta_prior + FP
 alpha_sensibilidad <- alpha_prior + TP
 beta_sensibilidad <- beta_prior + FN
 
-dt_parametros_posteriores_t0_m3 <- data.table(
+data.table(
   metrica = c("precision", "sensibilidad"),
   alpha_posterior = c(alpha_precision, alpha_sensibilidad),
   beta_posterior = c(beta_precision, beta_sensibilidad)
 )
-
-dt_parametros_posteriores_t0_m3
 
 ```
 
@@ -443,15 +429,13 @@ muestras_sensibilidad_t0_m3 <- rbeta(
 
 # Sanity checks de muestras posteriores
 
-dt_sanity_muestras <- data.table(
+data.table(
   objeto = c("muestras_precision", "muestras_sensibilidad"),
   n_muestras = c(length(muestras_precision_t0_m3), length(muestras_sensibilidad_t0_m3)),
   minimo = c(min(muestras_precision_t0_m3), min(muestras_sensibilidad_t0_m3)),
   maximo = c(max(muestras_precision_t0_m3), max(muestras_sensibilidad_t0_m3)),
   media = c(mean(muestras_precision_t0_m3), mean(muestras_sensibilidad_t0_m3))
 )
-
-dt_sanity_muestras
 
 ```
 
@@ -474,7 +458,7 @@ hpdi_sensibilidad_t0_m3
 ```{r}
 # Tabla resumen del posterior de precisión y sensibilidad
 
-dt_posterior_t0_m3_paso2 <- data.table(
+data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   metrica = c("precision", "sensibilidad"),
@@ -503,14 +487,12 @@ dt_posterior_t0_m3_paso2 <- data.table(
     beta_sensibilidad
   )
 )
-
-dt_posterior_t0_m3_paso2
 ```
 
 ```{r}
 # Tabla final para reportar el Paso 2
 
-dt_reporte_t0_m3_paso2 <- data.table(
+dt_m3_t0_posterior_hdpi <- data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   metrica = c("precision", "sensibilidad"),
@@ -528,7 +510,7 @@ dt_reporte_t0_m3_paso2 <- data.table(
   )
 )
 
-dt_reporte_t0_m3_paso2
+dt_m3_t0_posterior_hdpi
 ```
 
 
@@ -551,10 +533,10 @@ ggplot(df_muestras_t0_m3, aes(x = valor, fill = metrica)) +
   # Densidades de las muestras
   geom_density(alpha = 0.5, color = NA) +
   # Líneas de las medias posteriores
-  geom_vline(data = dt_reporte_t0_m3_paso2, aes(xintercept = mediana_posterior_t0_m3, color = metrica), 
+  geom_vline(data = dt_m3_t0_posterior_hdpi, aes(xintercept = mediana_posterior_t0_m3, color = metrica), 
              linetype = "dashed", size = 0.8) +
   # Anotación de los intervalos HPDI (barras horizontales inferiores)
-  geom_errorbarh(data = dt_reporte_t0_m3_paso2, 
+  geom_errorbarh(data = dt_m3_t0_posterior_hdpi, 
                  aes(y = 0, xmin = hpdi_95_inf_t0_m3, xmax = hpdi_95_sup_t0_m3, color = metrica),
                  height = 5, size = 1.2, inherit.aes = FALSE) +
   # Curva Teórica del Prior (Beta 1,1 es una uniforme, se ve como línea tope)
@@ -586,6 +568,8 @@ ggplot(df_muestras_t0_m3, aes(x = valor, fill = metrica)) +
   scale_fill_manual(values = c("precision" = col_azul, "sensibilidad" = col_rojo)) +
   theme_bw() +
   labs(title = "Detalle por métrica (Posterior)", x = "Valor", y = "Densidad")
+
+rm(df_muestras_t0_m3, TP, TN, FN, FP, S, hpdi_precision_t0_m3, hpdi_sensibilidad_t0_m3, precision_puntual_t0_m3, sensibilidad_puntual_t0_m3, alpha_precision, alpha_prior, alpha_sensibilidad, beta_precision, beta_prior, beta_sensibilidad)
 ```
 
 
@@ -603,26 +587,25 @@ hpdi_f1_t0_m3 <- hpdi(muestras_f1_t0_m3, prob = 0.95)
 hpdi_95_inf_f1_t0_m3 = c(hpdi_f1_t0_m3[1])
 hpdi_95_sup_f1_t0_m3 = c(hpdi_f1_t0_m3[2])
 
-
+rm(muestras_f1_t0_m3, hpdi_f1_t0_m3, muestras_precision_t0_m3, muestras_sensibilidad_t0_m3)
 ```
 
 ```{r}
 # Tabla resumen del posterior de F1 vía Monte Carlo
 
-dt_posterior_f1_t0_m3 <- data.table(
+data.table(
   modelo = "M3_gbm_completo",
   ventana = "T0_validacion",
   metrica = "F1",
   mediana_posterior_t0_m3 = mediana_f1_t0_m3,
   hpdi_95_inf_t0_m3 = hpdi_95_inf_f1_t0_m3,
   hpdi_95_sup_t0_m3 = hpdi_95_sup_f1_t0_m3,
-  f1_puntual_paso1_t0_m3 = round(f1_calculado, 4),
-  cubre_f1_puntual = (hpdi_95_inf_f1_t0_m3 <= f1_calculado) & 
-                     (f1_calculado <= hpdi_95_sup_f1_t0_m3)
+  f1_puntual_paso1_t0_m3 = round(f1_calculado_t0_m3, 4),
+  cubre_f1_puntual = (hpdi_95_inf_f1_t0_m3 <= f1_calculado_t0_m3) & 
+                     (f1_calculado_t0_m3 <= hpdi_95_sup_f1_t0_m3)
 )
 
-dt_posterior_f1_t0_m3
-
+rm(mediana_f1_t0_m3, hpdi_95_inf_f1_t0_m3, hpdi_95_sup_f1_t0_m3, f1_calculado_t0_m3)
 ```
 # 4 Posteriors F1 y simulacion Monte Carlo para todos los modelos en T0
 
@@ -673,7 +656,7 @@ dt_reporte_paso4
 
 ```{r}
 
-dt_sanity_paso4 <- data.table(
+data.table(
   chequeo = c(
     "Todos los modelos fueron procesados",
     "Todas las F1 están entre 0 y 1",
@@ -688,7 +671,7 @@ dt_sanity_paso4 <- data.table(
   )
 )
 
-dt_sanity_paso4
+rm(dt_reporte_paso4)
 
 ```
 
@@ -711,7 +694,7 @@ names(dt_metricas_temporales)
 ```{r}
 # Inspección inicial de estructura
 
-dt_sanity_metricas_temporales <- data.table(
+data.table(
   n_filas = nrow(dt_metricas_temporales),
   n_columnas = ncol(dt_metricas_temporales),
   mes_minimo = min(dt_metricas_temporales$mes, na.rm = TRUE),
@@ -719,7 +702,6 @@ dt_sanity_metricas_temporales <- data.table(
   n_modelos = uniqueN(dt_metricas_temporales$modelo)
 )
 
-dt_sanity_metricas_temporales
 ```
 
 ```{r}
@@ -729,7 +711,7 @@ dt_metricas_temporales_1_18 <- dt_metricas_temporales[
   mes >= 1 & mes <= 18
 ]
 
-dt_sanity_metricas_temporales_1_18 <- dt_metricas_temporales_1_18[
+dt_metricas_temporales_1_18[
   ,
   .(
     n_meses = uniqueN(mes),
@@ -740,7 +722,6 @@ dt_sanity_metricas_temporales_1_18 <- dt_metricas_temporales_1_18[
   )
 ]
 
-dt_sanity_metricas_temporales_1_18
 ```
 
 ```{r}
@@ -771,7 +752,7 @@ dt_conteos_mensuales[
 
 
 ```{r}
-dt_sanity_conteos_mensuales <- dt_conteos_mensuales[
+dt_conteos_mensuales[
   ,
   .(
     n_filas = .N,
@@ -781,8 +762,6 @@ dt_sanity_conteos_mensuales <- dt_conteos_mensuales[
     diferencia_max_f1 = max(abs(f1 - f1_recalculado), na.rm = TRUE)
   )
 ]
-
-dt_sanity_conteos_mensuales
 
 ```
 
@@ -846,7 +825,7 @@ dt_resumen_f1_mensual[order(modelo, mes)]
 ```{r}
 # Sanity check del resumen mensual
 
-dt_sanity_resumen_f1_mensual <- data.table(
+data.table(
   chequeo = c(
     "Hay 18 meses",
     "Hay 5 modelos",
@@ -862,8 +841,6 @@ dt_sanity_resumen_f1_mensual <- data.table(
     all(dt_resumen_f1_mensual$hpdi_95_inf <= dt_resumen_f1_mensual$hpdi_95_sup)
   )
 )
-
-dt_sanity_resumen_f1_mensual
 ```
 
 
@@ -928,8 +905,9 @@ ggsave(
 
 file.exists(archivo_grafico_f1_mensual)
 
-
 grafico_f1_mensual
+
+rm(S_mensual, grafico_f1_mensual, archivo_grafico_f1_mensual, dt_resumen_f1_mensual)
 
 ```
 
@@ -1152,14 +1130,9 @@ dt_chequeo_m3_secuencial <- dt_chequeo_f1_secuencial[
 ]
 
 dt_chequeo_m3_secuencial
+
+rm(dt_conteos_mensuales_ordenado, dt_chequeo_f1_secuencial, dt_resumen_chequeo_f1_secuencial, archivo_grafico_f1_secuencial, grafico_f1_secuencial, S_secuencial, dt_chequeo_m3_secuencial)
 ```
-
-```{r}
-View(dt_chequeo_m3_secuencial)
-
-```
-
-
 
 
 # 6.1 Posteriores agregadas ventana operativa 16_18
@@ -1299,8 +1272,9 @@ ggsave(
 
 file.exists(archivo_grafico_forest_f1_ventana_operativa)
 
-
 grafico_forest_f1_ventana_operativa
+
+rm(archivo_grafico_forest_f1_ventana_operativa, grafico_forest_f1_ventana_operativa, n_fraude)
 ```
 
 
@@ -1351,7 +1325,7 @@ dt_muestras_f1_ventana_operativa <- dt_conteos_ventana_operativa[
 ```{r}
 # Sanity check de muestras posteriores
 
-dt_sanity_muestras_f1_ventana_operativa <- dt_muestras_f1_ventana_operativa[
+dt_muestras_f1_ventana_operativa[
   ,
   .(
     n_muestras = .N,
@@ -1362,7 +1336,6 @@ dt_sanity_muestras_f1_ventana_operativa <- dt_muestras_f1_ventana_operativa[
   by = modelo
 ]
 
-dt_sanity_muestras_f1_ventana_operativa
 ```
 
 ```{r}
@@ -1426,6 +1399,7 @@ ggsave(
 
 grafico_densidades_f1_ventana_operativa
 
+rm(grafico_densidades_f1_ventana_operativa, archivo_grafico_densidades_f1_ventana_operativa, S_ventana_operativa)
 
 ```
 
@@ -1434,8 +1408,7 @@ grafico_densidades_f1_ventana_operativa
 ```{r}
 
 # Sanity check de muestras para matriz de dominancia
-
-dt_sanity_muestras_dominancia <- dt_muestras_f1_ventana_operativa[
+dt_muestras_f1_ventana_operativa[
   ,
   .(
     n_muestras = .N,
@@ -1446,7 +1419,6 @@ dt_sanity_muestras_dominancia <- dt_muestras_f1_ventana_operativa[
   by = modelo
 ]
 
-dt_sanity_muestras_dominancia
 ```
 
 
@@ -1521,7 +1493,7 @@ dt_matriz_dominancia_f1[]
 ```{r}
 # Sanity check de matriz de dominancia
 
-dt_sanity_matriz_dominancia <- data.table(
+data.table(
   chequeo = c(
     "La matriz tiene 25 celdas",
     "La diagonal es 0",
@@ -1536,7 +1508,7 @@ dt_sanity_matriz_dominancia <- data.table(
   )
 )
 
-dt_sanity_matriz_dominancia
+
 ```
 
 
@@ -1561,8 +1533,6 @@ dt_matriz_dominancia_f1[
 
 
 ```{r}
-# Gráfico de matriz de dominancia bayesiana
-
 # Gráfico de matriz de dominancia bayesiana
 
 grafico_matriz_dominancia_f1 <- ggplot(
@@ -1614,7 +1584,7 @@ file.exists(archivo_grafico_matriz_dominancia_f1)
 
 grafico_matriz_dominancia_f1
 
-
+rm(archivo_grafico_matriz_dominancia_f1, grafico_matriz_dominancia_f1, matriz_dominancia_f1, modelo_i, modelo_j, orden_modelos_dominancia, dt_conteos_ventana_operativa, dt_metricas_temporales_1_18, dt_muestras_f1_dominancia_ancho)
 
 ```
 
@@ -1683,6 +1653,8 @@ dt_kl_m4_m2 <- data.table(
 )
 
 dt_kl_m4_m2
+
+rm(muestras_f1_16_18_m4, muestras_f1_16_18_m2, cortes_f1_kl_m4_m2, kl_m4_vs_m2, kl_m2_vs_m4, dt_muestras_f1_dominancia, dt_muestras_f1_ventana_operativa, dt_conteos_mensuales)
 ```
 
 
