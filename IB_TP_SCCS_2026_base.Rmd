@@ -1589,7 +1589,7 @@ file.exists(archivo_grafico_matriz_dominancia_f1)
 
 grafico_matriz_dominancia_f1
 
-rm(archivo_grafico_matriz_dominancia_f1, grafico_matriz_dominancia_f1, matriz_dominancia_f1, modelo_i, modelo_j, orden_modelos_dominancia, dt_conteos_ventana_operativa, dt_metricas_temporales_1_18, dt_muestras_f1_dominancia_ancho)
+rm(archivo_grafico_matriz_dominancia_f1, grafico_matriz_dominancia_f1, matriz_dominancia_f1, modelo_i, modelo_j, orden_modelos_dominancia, dt_metricas_temporales_1_18, dt_muestras_f1_dominancia_ancho)
 
 ```
 
@@ -1662,7 +1662,7 @@ dt_kl_m4_m2
 rm(muestras_f1_16_18_m4, muestras_f1_16_18_m2, cortes_f1_kl_m4_m2, kl_m4_vs_m2, kl_m2_vs_m4, dt_muestras_f1_dominancia, dt_muestras_f1_ventana_operativa, dt_conteos_mensuales)
 ```
 
-Paso 7:
+# 7 Análisis operaciones
 Analisis del dataset de operaciones para chequear balance de clases entre conjunto de entrenamiento y validacion y las etiquetas.
 
 ```{r}
@@ -1737,6 +1737,7 @@ dt_balance_fraude <- dt_operaciones[, .(
 dt_balance_fraude[order(mes, etiquetado)]
 ```
 
+# 7.1 Análisis de features
 Se analizan las 6 features disponibles del dataset agrupado por mes, separado entre entrenamiento y validacion en T0 y filtrando unicamente etiquetado == TRUE para descartar los casos no etiquetados (Se podria probar incluir una linea con etiquetado == FALSE para ver si hay algun insight escondido).
 
 Se separan los analisis entre features continuas y categoricas para analizar su relacion con la target.
@@ -1883,7 +1884,7 @@ rm(dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont,
    anotaciones, p, p_cont, col)
 
 ```
-
+# 7.2 Análisis PSI
 Se analiza el PSI (Population Stability Index) para cada feature continua, lo cual permite analizar si hay drift.
 Primero se realiza a nivel total del dataset, incluyendo las transacciones fraudulentas y las normales, pero aqui no se observa drift.
 
