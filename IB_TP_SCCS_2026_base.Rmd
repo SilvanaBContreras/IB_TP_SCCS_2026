@@ -1523,16 +1523,20 @@ dt_tabla_final_f1_presentacion[
   )
 ]
 
+
+
 # Etiquetas legibles de ventanas sin caracteres especiales
+
 dt_tabla_final_f1_presentacion[
   ,
   ventana_label := fifelse(
-    #ventana == "T0_meses_1_12", "T0 - meses 1 a 12",
-    ventana == "T0_validacion", "T0 - validacion",
+    as.character(ventana) == "T0_validacion_agregada",
+    "T0 - validacion agregada",
     fifelse(
-      ventana == "T1_entero_meses_13_18", "T1 entero - meses 13 a 18",
+      as.character(ventana) == "T1_entero_meses_13_18",
+      "T1 entero - meses 13 a 18",
       fifelse(
-        ventana == "ventana_operativa_meses_16_18",
+        as.character(ventana) == "ventana_operativa_meses_16_18",
         "Ventana operativa - meses 16 a 18",
         as.character(ventana)
       )
@@ -1540,13 +1544,16 @@ dt_tabla_final_f1_presentacion[
   )
 ]
 
+
+
 # Orden conceptual de ventanas
+
 dt_tabla_final_f1_presentacion[
   ,
   ventana_label := factor(
     ventana_label,
     levels = c(
-      "T0 - validacion",
+      "T0 - validacion agregada",
       "T1 entero - meses 13 a 18",
       "Ventana operativa - meses 16 a 18"
     )
@@ -1591,11 +1598,18 @@ dt_sanity_tabla_final_f1_presentacion <- data.table(
         "cubre_f1_puntual"
       ) %in% names(dt_tabla_final_f1_presentacion)
     ),
-    all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
-      all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
-      all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
+    # all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
+    #   all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
+    #   all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
+    all(!is.na(dt_tabla_final_f1_presentacion$ventana_label)) &
+  all(!is.na(dt_tabla_final_f1_presentacion$modelo_label)) &
+  all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
+  all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
+  all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
   )
 )
+
+
 
 # Funcion auxiliar para escapar texto HTML
 escapar_html <- function(x) {
