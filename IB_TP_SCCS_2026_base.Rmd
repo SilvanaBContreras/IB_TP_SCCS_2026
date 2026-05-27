@@ -1884,6 +1884,169 @@ rm(dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont,
    anotaciones, p, p_cont, col)
 
 ```
+7.1.bis graficos ggsave
+
+```{r}
+# 1. Definir features
+features_categoricas <- c("canal", "hora_bin", "dispositivo", "secuencia_24h")
+features_continuas   <- c("monto_log", "terminal_risk_score")
+
+# 2. Filtrar por etiquetado y crear la columna de partición
+dt_filtrado <- dt_operaciones[etiquetado == TRUE]
+
+dt_filtrado[, particion := fifelse(flag_train == TRUE, "Train",
+                           fifelse(flag_val == TRUE, "Val", 
+                           fifelse(flag_t1 == TRUE, "T1", "Otros")))]
+
+dt_filtrado <- dt_filtrado[particion != "Otros"]
+
+# Vector con las posiciones de las líneas verticales que quieres agregar
+cortes_X <- c(12.5, 15.5, 18.5)
+
+# Bucle para Variables Categóricas
+for (col in features_categoricas) {
+  
+  dt_plot_cat <- dt_filtrado[, .(
+    tasa_fraude = (sum(es_fraude, na.rm = TRUE) / .N) * 100
+  ), by = .(mes = as.numeric(mes), categoria = get(col), particion)]
+  
+  p <- ggplot(dt_plot_cat, aes(x = mes, y = tasa_fraude, 
+                               group = interaction(categoria, particion), 
+                               color = particion)) +
+    geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 1.5) +
+    facet_wrap(~ categoria, scales = "free_y", ncol = 2) +
+    labs(
+      title = paste("Evolución temporal de la tasa de fraude por categoria - feature:", col),
+      x = "Mes",
+      y = "Tasa de Fraude (%)",
+      color = "Partición"
+    ) +
+    scale_color_manual(values = c("Train" = "#1f77b4", "Val" = "#ff7f0e", "T1" = "#2ca02c")) +
+    scale_x_continuous(n.breaks = 6) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p)
+  
+  # === GUARDADO AUTOMÁTICO ===
+  archivo_salida <- file.path(
+    directorio_graficos,
+    paste0("feat_cat_", col, ".png")
+  )
+  
+  ggsave(
+    filename = archivo_salida,
+    plot = p,
+    width = 10,
+    height = 8,
+    dpi = 300
+  )
+  message("Guardado: ", archivo_salida, " - Existe: ", file.exists(archivo_salida))
+}
+
+# Analisis de features continuas con quintiles
+for (col in features_continuas) {
+  
+  cortes <- quantile(dt_filtrado[[col]], probs = seq(0, 1, by = 0.2), na.rm = TRUE)
+  cortes <- unique(cortes) 
+  
+  dt_temp <- dt_filtrado[, .(mes = as.numeric(mes), particion, es_fraude, valor = get(col))]
+  dt_temp[, rango := cut(valor, breaks = cortes, include.lowest = TRUE, include.inf = TRUE)]
+  
+  dt_plot_cont_target <- dt_temp[!is.na(rango), .(
+    tasa_fraude = (sum(es_fraude, na.rm = TRUE) / .N) * 100
+  ), by = .(mes, particion, rango)]
+  
+  p_cont <- ggplot(dt_plot_cont_target, aes(x = mes, y = tasa_fraude, group = particion, color = particion)) +
+    geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 1.5) +
+    facet_wrap(~ rango, scales = "free_y") + 
+    labs(
+      title = paste("Evolución temporal de la tasa de fraude por quintiles - feature:", col),
+      x = "Mes",
+      y = "Tasa de Fraude (%) en el Rango",
+      color = "Partición"
+    ) +
+    scale_color_manual(values = c("Train" = "#1f77b4", "Val" = "#ff7f0e", "T1" = "#2ca02c")) +
+    scale_x_continuous(n.breaks = 6) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p_cont)
+  
+  # === GUARDADO AUTOMÁTICO ===
+  archivo_salida <- file.path(
+    directorio_graficos,
+    paste0("feat_cont_quintiles_", col, ".png")
+  )
+  
+  ggsave(
+    filename = archivo_salida,
+    plot = p_cont,
+    width = 10,
+    height = 8,
+    dpi = 300
+  )
+  message("Guardado: ", archivo_salida, " - Existe: ", file.exists(archivo_salida))
+}
+
+# Valor medio en features continuas
+for (col in features_continuas) {
+  
+  dt_plot_cont <- dt_filtrado[es_fraude == TRUE, .(
+    valor_medio = mean(get(col), na.rm = TRUE)
+  ), by = .(mes = as.numeric(mes), particion)]
+  
+  p_cont <- ggplot(dt_plot_cont, aes(x = mes, y = valor_medio, group = particion, color = particion)) +
+    geom_vline(xintercept = cortes_X, color = "darkgray", lty = "dashed", linewidth = 0.6) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 1.5) +
+    labs(
+      title = paste("Evolución del valor medio en fraudes (es_fraude==TRUE) - feature:", col),
+      x = "Mes",
+      y = paste("Media de", col),
+      color = "Partición"
+    ) +
+    scale_color_manual(values = c("Train" = "#1f77b4", "Val" = "#ff7f0e", "T1" = "#2ca02c")) +
+    scale_x_continuous(n.breaks = 6) + 
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(size = 9)
+    )
+  
+  print(p_cont)
+  
+  # === GUARDADO AUTOMÁTICO ===
+  archivo_salida <- file.path(
+    directorio_graficos,
+    paste0("valor_medio_fraudes_", col, ".png")
+  )
+  
+  ggsave(
+    filename = archivo_salida,
+    plot = p_cont,
+    width = 10,
+    height = 8,
+    dpi = 300
+  )
+  message("Guardado: ", archivo_salida, " - Existe: ", file.exists(archivo_salida))
+}
+
+# Limpieza de objetos locales existentes en esta celda
+rm(dt_plot_cat, dt_temp, dt_plot_cont_target, dt_plot_cont, p, p_cont, col, cortes, archivo_salida)
+```
+
+
 # 7.2 Análisis PSI
 Se analiza el PSI (Population Stability Index) para cada feature continua, lo cual permite analizar si hay drift.
 Primero se realiza a nivel total del dataset, incluyendo las transacciones fraudulentas y las normales, pero aqui no se observa drift.
