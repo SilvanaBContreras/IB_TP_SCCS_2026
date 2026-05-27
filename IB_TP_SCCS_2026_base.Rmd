@@ -1289,29 +1289,55 @@ rm(archivo_grafico_forest_f1_ventana_operativa, grafico_forest_f1_ventana_operat
 
 ```{r}
 # Tabla final de F1 posterior por modelo y ventana
+# T0 usa validacion agregada desde JSON
+# T1 y ventana operativa usan conteos mensuales agregados
 
 set.seed(20260424)
 
 S_tabla_final_ventanas <- 50000
 
-dt_definicion_ventanas_f1 <- data.table(
+# Conteos T0 desde metricas_T0_validacion.json
+dt_conteos_t0_validacion <- rbindlist(
+  lapply(
+    nombres_modelos,
+    function(nombre_modelo) {
+      
+      m_T0 <- metricas_T0[[nombre_modelo]]$T0_validacion
+      
+      data.table(
+        ventana = "T0_validacion_agregada",
+        mes_inicio = 1,
+        mes_fin = 12,
+        modelo = nombre_modelo,
+        TP = m_T0$TP,
+        FP = m_T0$FP,
+        FN = m_T0$FN,
+        n_fraude = m_T0$TP + m_T0$FN,
+        n = m_T0$TP + m_T0$FP + m_T0$FN + m_T0$TN
+      )
+    }
+  )
+)
+
+# Definicion de ventanas post T0 desde metricas_temporales.csv
+dt_definicion_ventanas_post_t0 <- data.table(
   ventana = c(
-    "T0_meses_1_12",
     "T1_entero_meses_13_18",
     "ventana_operativa_meses_16_18"
   ),
-  mes_inicio = c(1, 13, 16),
-  mes_fin = c(12, 18, 18)
+  mes_inicio = c(13, 16),
+  mes_fin = c(18, 18)
 )
 
-dt_conteos_modelo_ventana <- rbindlist(
+# Conteos T1 y ventana operativa desde conteos mensuales
+dt_conteos_post_t0 <- rbindlist(
   lapply(
-    seq_len(nrow(dt_definicion_ventanas_f1)),
+    seq_len(nrow(dt_definicion_ventanas_post_t0)),
     function(i) {
       
-      ventana_i <- dt_definicion_ventanas_f1$ventana[i]
-      mes_inicio_i <- dt_definicion_ventanas_f1$mes_inicio[i]
-      mes_fin_i <- dt_definicion_ventanas_f1$mes_fin[i]
+      ventana_i <- dt_definicion_ventanas_post_t0$ventana[i]
+      mes_inicio_i <- dt_definicion_ventanas_post_t0$mes_inicio[i]
+      mes_fin_i <- dt_definicion_ventanas_post_t0$mes_fin[i]
       
       dt_conteos_mensuales[
         mes >= mes_inicio_i & mes <= mes_fin_i,
@@ -1335,17 +1361,38 @@ dt_conteos_modelo_ventana <- rbindlist(
   )
 )
 
-setcolorder(
-  dt_conteos_modelo_ventana,
-  c("ventana", "mes_inicio", "mes_fin", "modelo",
-    "TP", "FP", "FN", "n_fraude", "n")
+# Union de ventanas
+dt_conteos_modelo_ventana <- rbindlist(
+  list(
+    dt_conteos_t0_validacion,
+    dt_conteos_post_t0
+  ),
+  use.names = TRUE,
+  fill = TRUE
 )
 
+setcolorder(
+  dt_conteos_modelo_ventana,
+  c(
+    "ventana",
+    "mes_inicio",
+    "mes_fin",
+    "modelo",
+    "TP",
+    "FP",
+    "FN",
+    "n_fraude",
+    "n"
+  )
+)
+
+# F1 puntual reconstruido desde conteos
 dt_conteos_modelo_ventana[
   ,
   f1_puntual := (2 * TP) / ((2 * TP) + FP + FN)
 ]
 
+# Funcion para posterior F1 por modelo y ventana
 calcular_posterior_f1_modelo_ventana <- function(dt_modelo_ventana, S = 50000) {
   
   TP_ventana <- dt_modelo_ventana$TP[1]
@@ -1383,23 +1430,63 @@ calcular_posterior_f1_modelo_ventana <- function(dt_modelo_ventana, S = 50000) {
   )
 }
 
+# Calculo posterior por modelo y ventana
 dt_tabla_final_f1_modelo_ventana <- dt_conteos_modelo_ventana[
   ,
   calcular_posterior_f1_modelo_ventana(.SD, S = S_tabla_final_ventanas),
   by = .(ventana, mes_inicio, mes_fin, modelo)
 ]
 
+# Orden conceptual de ventanas
 dt_tabla_final_f1_modelo_ventana[
   ,
   ventana := factor(
     ventana,
     levels = c(
-      "T0_meses_1_12",
+      "T0_validacion_agregada",
       "T1_entero_meses_13_18",
       "ventana_operativa_meses_16_18"
     )
   )
 ]
+
+# Sanity check de tabla final
+dt_sanity_tabla_final_f1_modelo_ventana <- data.table(
+  chequeo = c(
+    "La tabla tiene 15 filas",
+    "Hay 3 ventanas",
+    "Hay 5 modelos",
+    "T0 de M3 coincide con F1 esperado del JSON",
+    "Todas las F1 estan entre 0 y 1",
+    "Todos los HPDI cubren el F1 puntual",
+    "No hay valores faltantes en metricas principales"
+  ),
+  resultado = c(
+    nrow(dt_tabla_final_f1_modelo_ventana) == 15,
+    uniqueN(dt_tabla_final_f1_modelo_ventana$ventana) == 3,
+    uniqueN(dt_tabla_final_f1_modelo_ventana$modelo) == 5,
+    abs(
+      dt_tabla_final_f1_modelo_ventana[
+        ventana == "T0_validacion_agregada" & modelo == "M3_gbm_completo",
+        f1_puntual
+      ] -
+        (2 * metricas_T0[["M3_gbm_completo"]]$T0_validacion$TP) /
+        (
+          2 * metricas_T0[["M3_gbm_completo"]]$T0_validacion$TP +
+            metricas_T0[["M3_gbm_completo"]]$T0_validacion$FP +
+            metricas_T0[["M3_gbm_completo"]]$T0_validacion$FN
+        )
+    ) < 1e-10,
+    all(dt_tabla_final_f1_modelo_ventana$f1_puntual >= 0 &
+          dt_tabla_final_f1_modelo_ventana$f1_puntual <= 1),
+    all(dt_tabla_final_f1_modelo_ventana$cubre_f1_puntual),
+    all(!is.na(dt_tabla_final_f1_modelo_ventana$mediana_f1)) &
+      all(!is.na(dt_tabla_final_f1_modelo_ventana$hpdi_95_inf)) &
+      all(!is.na(dt_tabla_final_f1_modelo_ventana$hpdi_95_sup))
+  )
+)
+
+dt_sanity_tabla_final_f1_modelo_ventana
 
 dt_tabla_final_f1_modelo_ventana[
   order(ventana, -mediana_f1)
@@ -1440,7 +1527,8 @@ dt_tabla_final_f1_presentacion[
 dt_tabla_final_f1_presentacion[
   ,
   ventana_label := fifelse(
-    ventana == "T0_meses_1_12", "T0 - meses 1 a 12",
+    #ventana == "T0_meses_1_12", "T0 - meses 1 a 12",
+    ventana == "T0_validacion", "T0 - validacion",
     fifelse(
       ventana == "T1_entero_meses_13_18", "T1 entero - meses 13 a 18",
       fifelse(
@@ -1458,7 +1546,7 @@ dt_tabla_final_f1_presentacion[
   ventana_label := factor(
     ventana_label,
     levels = c(
-      "T0 - meses 1 a 12",
+      "T0 - validacion",
       "T1 entero - meses 13 a 18",
       "Ventana operativa - meses 16 a 18"
     )
@@ -1674,7 +1762,8 @@ html_tabla_final <- paste0(
   '
 <tr>
 <td colspan="7" class="nota">
-Nota: T0 corresponde a meses 1 a 12 agregados desde metricas_temporales.csv. La ventana operativa corresponde a meses 16 a 18.
+Nota: T0 corresponde a los datos reportados en metricas_T0_validacion.json. T1 entero y ventana operativa se agregan desde metricas_temporales.csv.
+
 </td>
 </tr>
 </tbody>
