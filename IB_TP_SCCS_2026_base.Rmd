@@ -70,15 +70,6 @@ col_gris    <- "#95A5A6"
 rm(pal)
 ```
 
-```{r}
-
-print("ATENCIÓN: Este .rmd es un EXTRACTO de la práctica 6 para usar como template en caso de resultar útil")
-#quité el ejercicio 2
-#quité explicaciones pedagógicas
-#no toqué código
-  
-```
-
 
 ```{r}
 
@@ -1292,6 +1283,499 @@ file.exists(archivo_grafico_forest_f1_ventana_operativa)
 grafico_forest_f1_ventana_operativa
 
 rm(archivo_grafico_forest_f1_ventana_operativa, grafico_forest_f1_ventana_operativa, n_fraude)
+```
+# Tabla F1 por modelo × ventana 
+(T0, T1 entero, ventana operativa), mediana posterior y HPDI 95 %.
+
+```{r}
+# Tabla final de F1 posterior por modelo y ventana
+
+set.seed(20260424)
+
+S_tabla_final_ventanas <- 50000
+
+dt_definicion_ventanas_f1 <- data.table(
+  ventana = c(
+    "T0_meses_1_12",
+    "T1_entero_meses_13_18",
+    "ventana_operativa_meses_16_18"
+  ),
+  mes_inicio = c(1, 13, 16),
+  mes_fin = c(12, 18, 18)
+)
+
+dt_conteos_modelo_ventana <- rbindlist(
+  lapply(
+    seq_len(nrow(dt_definicion_ventanas_f1)),
+    function(i) {
+      
+      ventana_i <- dt_definicion_ventanas_f1$ventana[i]
+      mes_inicio_i <- dt_definicion_ventanas_f1$mes_inicio[i]
+      mes_fin_i <- dt_definicion_ventanas_f1$mes_fin[i]
+      
+      dt_conteos_mensuales[
+        mes >= mes_inicio_i & mes <= mes_fin_i,
+        .(
+          TP = sum(TP),
+          FP = sum(FP),
+          FN = sum(FN),
+          n_fraude = sum(n_fraude),
+          n = sum(n)
+        ),
+        by = modelo
+      ][
+        ,
+        `:=`(
+          ventana = ventana_i,
+          mes_inicio = mes_inicio_i,
+          mes_fin = mes_fin_i
+        )
+      ]
+    }
+  )
+)
+
+setcolorder(
+  dt_conteos_modelo_ventana,
+  c("ventana", "mes_inicio", "mes_fin", "modelo",
+    "TP", "FP", "FN", "n_fraude", "n")
+)
+
+dt_conteos_modelo_ventana[
+  ,
+  f1_puntual := (2 * TP) / ((2 * TP) + FP + FN)
+]
+
+calcular_posterior_f1_modelo_ventana <- function(dt_modelo_ventana, S = 50000) {
+  
+  TP_ventana <- dt_modelo_ventana$TP[1]
+  FP_ventana <- dt_modelo_ventana$FP[1]
+  FN_ventana <- dt_modelo_ventana$FN[1]
+  
+  muestras_precision_ventana <- rbeta(
+    n = S,
+    shape1 = 1 + TP_ventana,
+    shape2 = 1 + FP_ventana
+  )
+  
+  muestras_sensibilidad_ventana <- rbeta(
+    n = S,
+    shape1 = 1 + TP_ventana,
+    shape2 = 1 + FN_ventana
+  )
+  
+  muestras_f1_ventana <- 2 * muestras_precision_ventana * muestras_sensibilidad_ventana /
+    (muestras_precision_ventana + muestras_sensibilidad_ventana)
+  
+  hpdi_f1_ventana <- hpdi(muestras_f1_ventana, prob = 0.95)
+  
+  data.table(
+    f1_puntual = dt_modelo_ventana$f1_puntual[1],
+    mediana_f1 = median(muestras_f1_ventana),
+    hpdi_95_inf = hpdi_f1_ventana[1],
+    hpdi_95_sup = hpdi_f1_ventana[2],
+    HPDI_95 = sprintf("[%.4f, %.4f]", hpdi_f1_ventana[1], hpdi_f1_ventana[2]),
+    cubre_f1_puntual = hpdi_f1_ventana[1] <= dt_modelo_ventana$f1_puntual[1] &
+      dt_modelo_ventana$f1_puntual[1] <= hpdi_f1_ventana[2],
+    TP = TP_ventana,
+    FP = FP_ventana,
+    FN = FN_ventana
+  )
+}
+
+dt_tabla_final_f1_modelo_ventana <- dt_conteos_modelo_ventana[
+  ,
+  calcular_posterior_f1_modelo_ventana(.SD, S = S_tabla_final_ventanas),
+  by = .(ventana, mes_inicio, mes_fin, modelo)
+]
+
+dt_tabla_final_f1_modelo_ventana[
+  ,
+  ventana := factor(
+    ventana,
+    levels = c(
+      "T0_meses_1_12",
+      "T1_entero_meses_13_18",
+      "ventana_operativa_meses_16_18"
+    )
+  )
+]
+
+dt_tabla_final_f1_modelo_ventana[
+  order(ventana, -mediana_f1)
+]
+```
+
+
+```{r results='asis'}
+
+# Tabla HTML final por modelo y ventana
+
+decimales_f1_tabla <- 5
+
+dt_tabla_final_f1_presentacion <- copy(dt_tabla_final_f1_modelo_ventana)
+
+# Etiquetas legibles de modelos sin caracteres especiales
+dt_tabla_final_f1_presentacion[
+  ,
+  modelo_label := fifelse(
+    modelo == "M1_logistica", "M1 - Regresion logistica",
+    fifelse(
+      modelo == "M2_random_forest", "M2 - Random forest",
+      fifelse(
+        modelo == "M3_gbm_completo", "M3 - GBM completo",
+        fifelse(
+          modelo == "M4_gbm_moderado", "M4 - GBM moderado",
+          fifelse(
+            modelo == "M5_naive_bayes", "M5 - Naive Bayes",
+            modelo
+          )
+        )
+      )
+    )
+  )
+]
+
+# Etiquetas legibles de ventanas sin caracteres especiales
+dt_tabla_final_f1_presentacion[
+  ,
+  ventana_label := fifelse(
+    ventana == "T0_meses_1_12", "T0 - meses 1 a 12",
+    fifelse(
+      ventana == "T1_entero_meses_13_18", "T1 entero - meses 13 a 18",
+      fifelse(
+        ventana == "ventana_operativa_meses_16_18",
+        "Ventana operativa - meses 16 a 18",
+        as.character(ventana)
+      )
+    )
+  )
+]
+
+# Orden conceptual de ventanas
+dt_tabla_final_f1_presentacion[
+  ,
+  ventana_label := factor(
+    ventana_label,
+    levels = c(
+      "T0 - meses 1 a 12",
+      "T1 entero - meses 13 a 18",
+      "Ventana operativa - meses 16 a 18"
+    )
+  )
+]
+
+# Tabla reducida para visualizacion
+dt_tabla_final_f1_presentacion <- dt_tabla_final_f1_presentacion[
+  order(modelo, ventana_label),
+  .(
+    modelo,
+    modelo_label,
+    ventana_label,
+    f1_puntual,
+    mediana_f1,
+    HPDI_95,
+    TP,
+    FP,
+    FN
+  )
+]
+
+# Sanity check de tabla de presentacion
+dt_sanity_tabla_final_f1_presentacion <- data.table(
+  chequeo = c(
+    "La tabla de presentacion tiene 15 filas",
+    "La tabla de presentacion tiene 5 modelos",
+    "La tabla de presentacion tiene 3 ventanas",
+    "Las columnas ocultas no estan en la tabla de presentacion",
+    "No hay valores faltantes en metricas principales"
+  ),
+  resultado = c(
+    nrow(dt_tabla_final_f1_presentacion) == 15,
+    uniqueN(dt_tabla_final_f1_presentacion$modelo) == 5,
+    uniqueN(dt_tabla_final_f1_presentacion$ventana_label) == 3,
+    !any(
+      c(
+        "mes_inicio",
+        "mes_fin",
+        "hpdi_95_inf",
+        "hpdi_95_sup",
+        "cubre_f1_puntual"
+      ) %in% names(dt_tabla_final_f1_presentacion)
+    ),
+    all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
+      all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
+      all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
+  )
+)
+
+# Funcion auxiliar para escapar texto HTML
+escapar_html <- function(x) {
+  x <- as.character(x)
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  x <- gsub(">", "&gt;", x, fixed = TRUE)
+  x
+}
+
+# Formato numerico de F1
+formatear_f1 <- function(x, decimales = 5) {
+  sprintf(paste0("%.", decimales, "f"), x)
+}
+
+# Estilos generales de la tabla
+html_tabla_final <- '
+<style>
+.tabla-f1 {
+  width: 100%;
+  max-width: 1150px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  margin-top: 12px;
+  margin-bottom: 18px;
+}
+
+.tabla-f1 caption {
+  caption-side: top;
+  text-align: left;
+  font-size: 18px;
+  font-weight: 700;
+  padding-bottom: 4px;
+  color: #222222;
+}
+.tabla-f1 .subtitulo {
+  font-size: 13px;
+  font-weight: 400;
+  color: #555555;
+}
+.tabla-f1 th {
+  background-color: #F2F4F7;
+  color: #222222;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2px solid #C9D1D9;
+  padding: 8px;
+}
+.tabla-f1 td {
+  border-bottom: 1px solid #E5E7EB;
+  padding: 7px 8px;
+  text-align: center;
+}
+.tabla-f1 td.periodo {
+  text-align: left;
+  font-weight: 600;
+}
+.tabla-f1 tr.modelo-grupo td {
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 0;
+}
+.tabla-f1 tr.t0 {
+  background-color: #FAFAFA;
+}
+.tabla-f1 tr.t1 {
+  background-color: #FFF8E6;
+}
+.tabla-f1 tr.operativa {
+  background-color: #EEF8EE;
+}
+.tabla-f1 td.mediana {
+  font-weight: 700;
+}
+.tabla-f1 .nota {
+  font-size: 12px;
+  color: #555555;
+  text-align: left;
+  padding-top: 10px;
+  border-bottom: 0;
+}
+</style>
+
+<table class="tabla-f1">
+<colgroup>
+  <col style="width: 30%;">
+  <col style="width: 13%;">
+  <col style="width: 16%;">
+  <col style="width: 17%;">
+  <col style="width: 8%;">
+  <col style="width: 8%;">
+  <col style="width: 8%;">
+</colgroup>
+<caption>
+
+F1 posterior por modelo y ventana de evaluacion<br>
+<span class="subtitulo">Mediana posterior e intervalo HPDI 95%. Conteos agregados por ventana.</span>
+</caption>
+<thead>
+<tr>
+  <th>Periodo</th>
+  <th>F1 puntual</th>
+  <th>Mediana posterior F1</th>
+  <th>HPDI 95%</th>
+  <th>TP</th>
+  <th>FP</th>
+  <th>FN</th>
+</tr>
+</thead>
+<tbody>
+'
+
+# Construccion de filas agrupadas por modelo
+for (modelo_i in nombres_modelos) {
+  
+  dt_modelo_i <- dt_tabla_final_f1_presentacion[modelo == modelo_i]
+  
+  color_modelo_i <- paleta_modelos[[modelo_i]]
+  modelo_label_i <- dt_modelo_i$modelo_label[1]
+  
+  html_tabla_final <- paste0(
+    html_tabla_final,
+    '<tr class="modelo-grupo">',
+    '<td colspan="7" style="background-color:', color_modelo_i, ';">',
+    escapar_html(modelo_label_i),
+    '</td></tr>'
+  )
+  
+  for (fila_i in seq_len(nrow(dt_modelo_i))) {
+    
+    ventana_i <- as.character(dt_modelo_i$ventana_label[fila_i])
+    
+    clase_ventana_i <- fifelse(
+      ventana_i == "T0 - meses 1 a 12", "t0",
+      fifelse(
+        ventana_i == "T1 entero - meses 13 a 18", "t1",
+        "operativa"
+      )
+    )
+    
+    html_tabla_final <- paste0(
+      html_tabla_final,
+      '<tr class="', clase_ventana_i, '">',
+      '<td class="periodo">', escapar_html(ventana_i), '</td>',
+      '<td>', formatear_f1(dt_modelo_i$f1_puntual[fila_i], decimales_f1_tabla), '</td>',
+      '<td class="mediana">', formatear_f1(dt_modelo_i$mediana_f1[fila_i], decimales_f1_tabla), '</td>',
+      '<td>', escapar_html(dt_modelo_i$HPDI_95[fila_i]), '</td>',
+      '<td>', dt_modelo_i$TP[fila_i], '</td>',
+      '<td>', dt_modelo_i$FP[fila_i], '</td>',
+      '<td>', dt_modelo_i$FN[fila_i], '</td>',
+      '</tr>'
+    )
+  }
+}
+
+# Cierre de tabla
+html_tabla_final <- paste0(
+  html_tabla_final,
+  '
+<tr>
+<td colspan="7" class="nota">
+Nota: T0 corresponde a meses 1 a 12 agregados desde metricas_temporales.csv. La ventana operativa corresponde a meses 16 a 18.
+</td>
+</tr>
+</tbody>
+</table>
+'
+)
+
+cat(html_tabla_final)
+```
+
+```{r}
+# Guardado de tabla HTML y PNG en directorio de graficos
+
+archivo_tabla_f1_html <- file.path(
+  directorio_graficos,
+  "tabla_final_f1_modelo_ventana.html"
+)
+
+archivo_tabla_f1_png <- file.path(
+  directorio_graficos,
+  "tabla_final_f1_modelo_ventana.png"
+)
+
+# HTML completo con codificacion UTF-8
+html_tabla_final_reporte <- paste0(
+  '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body {
+  margin: 24px;
+  background-color: white;
+}
+
+.contenedor-tabla-reporte {
+  width: 1150px;
+  max-width: 1150px;
+}
+
+</style>
+</head>
+<body>
+<div class="contenedor-tabla-reporte">
+',
+  html_tabla_final,
+  '
+</div>
+</body>
+</html>'
+)
+
+writeLines(
+  text = html_tabla_final_reporte,
+  con = archivo_tabla_f1_html,
+  useBytes = TRUE
+)
+
+# Exportacion a PNG si webshot2 esta disponible
+webshot2_disponible <- requireNamespace("webshot2", quietly = TRUE)
+
+if (webshot2_disponible) {
+  
+  webshot2::webshot(
+    url = normalizePath(archivo_tabla_f1_html),
+    file = archivo_tabla_f1_png,
+    vwidth = 1200,
+    vheight = 900,
+    zoom = 2
+  )
+  
+  
+} else {
+  
+  message(
+    "No se genero PNG porque falta webshot2. Instalar con install.packages('webshot2')."
+  )
+}
+
+# Sanity check de guardado
+dt_sanity_guardado_tabla_f1 <- data.table(
+  salida = c(
+    "HTML",
+    "PNG"
+  ),
+  archivo = c(
+    archivo_tabla_f1_html,
+    archivo_tabla_f1_png
+  ),
+  existe = c(
+    file.exists(archivo_tabla_f1_html),
+    file.exists(archivo_tabla_f1_png)
+  ),
+  ruta_absoluta = c(
+    normalizePath(archivo_tabla_f1_html, mustWork = FALSE),
+    normalizePath(archivo_tabla_f1_png, mustWork = FALSE)
+  )
+)
+
+dt_sanity_guardado_tabla_f1
+
 ```
 
 
