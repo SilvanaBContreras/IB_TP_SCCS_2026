@@ -1,0 +1,2777 @@
+---
+title: "Banco Ánfora. Reanálisis bayesiano de un sistema de detección de fraude bajo cambio de distribución por intervención externa -ANÁLISIS ASOCIACIÓN ENTRE VARIABLES-"
+author: "Lucas Chicco, Silvana Contreras, Ramiro Santamaría, Sofía Scaiano"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    code_folding: show
+  pdf_document: 
+    latex_engine: lualatex
+subtitle: "Taller Integrador de Inferencia Bayesiana - Maestria en Data Mining (UBA)"
+header-includes:
+  - \usepackage{fvextra}
+  - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+---
+
+```{r}
+
+paquetes <- c("tidyverse", "jsonlite", "ggplot2", "posterior", "nanoparquet", "arrow")
+
+paquetes_faltantes <- paquetes[!(paquetes %in% installed.packages()[, "Package"])]
+
+if (length(paquetes_faltantes) > 0) {
+  install.packages(paquetes_faltantes)
+} else {
+  print("¡Todos los paquetes ya están instalados!")
+}
+
+rm(paquetes, paquetes_faltantes)
+  
+```
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "100%"
+)
+
+options(scipen = 999)
+
+library(MASS)
+library(tidyverse)
+library(data.table)
+library(rethinking)
+library(scales)
+library(ibUBA)
+library(jsonlite)
+library(arrow)
+
+set.seed(20260424)
+
+# Paleta del curso
+
+pal <- ib_palette()
+
+col_azul    <- unname(pal["primary"])
+col_rojo    <- unname(pal["accent"])
+col_purpura <- unname(pal["purple"])
+col_celeste <- unname(pal["blue"])
+col_verde   <- unname(pal["green"])
+col_gris    <- "#95A5A6"
+col_negro   <- "#1F2933"
+
+rm(pal)
+```
+
+
+```{r}
+
+print("La URL del caso está en: https://anfora.netlify.app/")
+  
+```
+# Descarga datos TP CASO 2
+
+```{r}
+
+# ============================================================
+# Descarga automática de datos del Caso B - Banco Ánfora
+# ============================================================
+
+# Crear estructura de carpetas si no existe
+dir.create("datos", showWarnings = FALSE)
+dir.create("datos/v6", showWarnings = FALSE, recursive = TRUE)
+dir.create("datos/v6/modelos", showWarnings = FALSE, recursive = TRUE)
+
+# ------------------------------------------------------------
+# URLs de descarga
+# ------------------------------------------------------------
+
+urls_datos <- list(
+  
+  # Métricas principales
+  metricas_temporales = list(
+    url = "https://anfora.netlify.app/datos/v6/metricas_temporales.csv",
+    destino = "datos/v6/metricas_temporales.csv"
+  ),
+  
+  metricas_T0_validacion = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/metricas_T0_validacion.json",
+    destino = "datos/v6/modelos/metricas_T0_validacion.json"
+  ),
+  
+  # Archivos parquet
+  operaciones_T1 = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T1.parquet",
+    destino = "datos/v6/operaciones_T1.parquet"
+  ),
+  
+  operaciones_T0_valid = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T0_valid.parquet",
+    destino = "datos/v6/operaciones_T0_valid.parquet"
+  ),
+  
+  operaciones_T0_train = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T0_train.parquet",
+    destino = "datos/v6/operaciones_T0_train.parquet"
+  ),
+  
+  operaciones = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones.parquet",
+    destino = "datos/v6/operaciones.parquet"
+  ),
+  
+  operaciones_T1_etiquetadas = list(
+    url = "https://anfora.netlify.app/datos/v6/operaciones_T1_etiquetadas.parquet",
+    destino = "datos/v6/operaciones_T1_etiquetadas.parquet"
+  ),
+  
+  # Modelos serializados
+  modelo_M1 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M1_logistica.pkl",
+    destino = "datos/v6/modelos/M1.pkl"
+  ),
+  
+  modelo_M2 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M2_random_forest.pkl",
+    destino = "datos/v6/modelos/M2.pkl"
+  ),
+  
+  modelo_M3 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M3_gbm_completo.pkl",
+    destino = "datos/v6/modelos/M3.pkl"
+  ),
+  
+  modelo_M4 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M4_gbm_moderado.pkl",
+    destino = "datos/v6/modelos/M4.pkl"
+  ),
+  
+  modelo_M5 = list(
+    url = "https://anfora.netlify.app/datos/v6/modelos/M5_naive_bayes.pkl",
+    destino = "datos/v6/modelos/M5.pkl"
+  )
+)
+
+# ------------------------------------------------------------
+# Función de descarga
+# ------------------------------------------------------------
+
+descargar_si_no_existe <- function(nombre, url, destino) {
+  
+  if (file.exists(destino)) {
+    message("Ya existe: ", destino)
+  } else {
+    message("Descargando: ", nombre)
+    
+    tryCatch(
+      {
+        download.file(
+          url = url,
+          destfile = destino,
+          mode = "wb"
+        )
+        message("Descarga completa: ", destino)
+      },
+      error = function(e) {
+        message("No se pudo descargar: ", nombre)
+        message("Revisar URL o conexión.")
+        message("Error: ", e$message)
+      }
+    )
+  }
+}
+
+# ------------------------------------------------------------
+# Descargar todos los archivos declarados
+# ------------------------------------------------------------
+
+for (nombre in names(urls_datos)) {
+  descargar_si_no_existe(
+    nombre = nombre,
+    url = urls_datos[[nombre]]$url,
+    destino = urls_datos[[nombre]]$destino
+  )
+}
+
+rm(urls_datos, descargar_si_no_existe, nombre)
+
+```
+
+# directorio para graficos
+```{r}
+# Directorio para guardar gráficos
+
+directorio_graficos <- "graficos"
+
+dir.create(
+  path = directorio_graficos,
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+data.table(
+  directorio = directorio_graficos,
+  existe = dir.exists(directorio_graficos),
+  ruta_absoluta = normalizePath(directorio_graficos)
+)
+```
+
+
+
+```{r}
+
+
+# Rutas de archivos principales
+
+ruta_operaciones <- "datos/v6/operaciones.parquet"
+ruta_metricas_temporales <- "datos/v6/metricas_temporales.csv"
+
+dt_rutas_archivos <- data.table(
+  archivo = c("operaciones", "metricas_temporales"),
+  ruta = c(ruta_operaciones, ruta_metricas_temporales),
+  existe = c(
+    file.exists(ruta_operaciones),
+    file.exists(ruta_metricas_temporales)
+  )
+)
+
+dt_rutas_archivos
+
+```
+# levanto operaciones
+
+```{r}
+# Carga de operaciones completas
+
+dt_operaciones <- as.data.table(
+  read_parquet(ruta_operaciones)
+)
+
+setDT(dt_operaciones)
+
+dt_operaciones[]
+
+```
+
+
+
+```{r}
+# Sanity check de estructura general
+
+dt_sanity_operaciones <- data.table(
+  objeto = "dt_operaciones",
+  filas = nrow(dt_operaciones),
+  columnas = ncol(dt_operaciones),
+  meses_minimo = min(dt_operaciones$mes, na.rm = TRUE),
+  meses_maximo = max(dt_operaciones$mes, na.rm = TRUE),
+  operaciones_unicas = uniqueN(dt_operaciones$op_id),
+  op_id_duplicados = nrow(dt_operaciones) - uniqueN(dt_operaciones$op_id)
+)
+
+dt_sanity_operaciones
+
+```
+```{r}
+# Tipos de variables recibidas
+
+dt_tipos_variables <- data.table(
+  variable = names(dt_operaciones),
+  tipo = sapply(dt_operaciones, function(x) paste(class(x), collapse = " / ")),
+  n_distintos = sapply(dt_operaciones, uniqueN),
+  n_na = sapply(dt_operaciones, function(x) sum(is.na(x)))
+)
+
+dt_tipos_variables[]
+```
+# ventanas
+
+```{r}
+# Definición de ventanas temporales del análisis
+
+dt_operaciones[
+  ,
+  ventana_temporal := fcase(
+    mes >= 1  & mes <= 12, "T0_1_12",
+    mes >= 13 & mes <= 15, "T1_13_15",
+    mes >= 16 & mes <= 18, "T1_16_18",
+    mes >= 19 & mes <= 21, "T1_19_21",
+    mes >= 22 & mes <= 24, "T2_22_24",
+    default = NA_character_
+  )
+]
+
+orden_ventanas_temporales <- c(
+  "T0_1_12",
+  "T1_13_15",
+  "T1_16_18",
+  "T1_19_21",
+  "T2_22_24"
+)
+
+dt_operaciones[
+  ,
+  ventana_temporal := factor(
+    ventana_temporal,
+    levels = orden_ventanas_temporales
+  )
+]
+```
+
+
+```{r}
+# Sanity check de ventanas temporales
+
+dt_sanity_ventanas <- dt_operaciones[
+  ,
+  .(
+    n_operaciones = .N,
+    mes_minimo = min(mes),
+    mes_maximo = max(mes),
+    n_meses = uniqueN(mes),
+    n_etiquetadas = sum(etiquetado == TRUE, na.rm = TRUE),
+    pct_etiquetadas = round(100 * mean(etiquetado == TRUE, na.rm = TRUE), 2)
+  ),
+  by = ventana_temporal
+][
+  order(ventana_temporal)
+]
+
+dt_sanity_ventanas[]
+```
+```{r}
+# Variables principales del análisis exploratorio
+
+variables_numericas_fraude <- c(
+  "monto_log",
+  "terminal_risk_score",
+  "secuencia_24h"
+)
+
+variables_categoricas_fraude <- c(
+  "canal",
+  "hora_bin",
+  "dispositivo"
+)
+
+variables_control_fraude <- c(
+  "op_id",
+  "mes",
+  "ventana_temporal",
+  "etiquetado",
+  "es_fraude"
+)
+
+variables_analisis_fraude <- c(
+  variables_control_fraude,
+  variables_numericas_fraude,
+  variables_categoricas_fraude
+)
+
+dt_sanity_variables_analisis <- data.table(
+  variable = variables_analisis_fraude,
+  existe_en_operaciones = variables_analisis_fraude %in% names(dt_operaciones)
+)
+
+dt_sanity_variables_analisis[]
+```
+
+# SUBSET ETIQUETA TRUE
+
+```{r}
+# Subset con etiqueta válida de fraude
+
+dt_operaciones_etiquetadas <- copy(
+  dt_operaciones[
+    etiquetado == TRUE,
+    ..variables_analisis_fraude
+  ]
+)
+
+dt_operaciones_etiquetadas[
+  ,
+  clase_fraude := fifelse(
+    es_fraude == TRUE,
+    "fraude",
+    "legitima"
+  )
+]
+
+dt_operaciones_etiquetadas[
+  ,
+  clase_fraude := factor(
+    clase_fraude,
+    levels = c("legitima", "fraude")
+  )
+]
+
+dt_operaciones_etiquetadas[]
+```
+```{r}
+dt_sanity_etiquetadas <- dt_operaciones_etiquetadas[
+  ,
+  .(
+    n_etiquetadas = .N,
+    n_fraude = sum(es_fraude == TRUE, na.rm = TRUE),
+    n_legitimas = sum(es_fraude == FALSE, na.rm = TRUE),
+    tasa_fraude_pct = round(100 * mean(es_fraude == TRUE, na.rm = TRUE), 3)
+  ),
+  by = ventana_temporal
+][
+  order(ventana_temporal)
+]
+
+dt_sanity_etiquetadas[]
+```
+
+# valores faltantes
+
+```{r}
+# Chequeo austero de valores faltantes
+
+variables_chequeo_na <- c(
+  "monto_log",
+  "terminal_risk_score",
+  "secuencia_24h",
+  "canal",
+  "hora_bin",
+  "dispositivo",
+  "etiquetado",
+  "es_fraude"
+)
+
+dt_chequeo_na <- data.table(
+  variable = variables_chequeo_na,
+  n_na = sapply(
+    dt_operaciones_etiquetadas[, ..variables_chequeo_na],
+    function(x) sum(is.na(x))
+  )
+)
+
+dt_chequeo_na[
+  ,
+  pct_na := round(100 * n_na / nrow(dt_operaciones_etiquetadas), 4)
+]
+
+dt_chequeo_na[]
+```
+# variables x ventana x clase
+## numericas
+
+```{r}
+
+# Perfil descriptivo de variables numéricas por ventana y clase
+
+dt_perfil_numericas_clase <- dt_operaciones_etiquetadas[
+  ,
+  .(
+    n_operaciones = .N,
+    
+    monto_log_media = round(mean(monto_log), 3),
+    monto_log_mediana = round(median(monto_log), 3),
+    monto_log_p25 = round(quantile(monto_log, 0.25), 3),
+    monto_log_p75 = round(quantile(monto_log, 0.75), 3),
+    
+    terminal_risk_score_media = round(mean(terminal_risk_score), 3),
+    terminal_risk_score_mediana = round(median(terminal_risk_score), 3),
+    terminal_risk_score_p25 = round(quantile(terminal_risk_score, 0.25), 3),
+    terminal_risk_score_p75 = round(quantile(terminal_risk_score, 0.75), 3),
+    
+    secuencia_24h_media = round(mean(secuencia_24h), 3),
+    secuencia_24h_mediana = round(median(secuencia_24h), 3),
+    secuencia_24h_p25 = round(quantile(secuencia_24h, 0.25), 3),
+    secuencia_24h_p75 = round(quantile(secuencia_24h, 0.75), 3)
+  ),
+  by = .(ventana_temporal, clase_fraude)
+][
+  order(ventana_temporal, clase_fraude)
+]
+
+dt_perfil_numericas_clase[]
+```
+
+```{r}
+# Diferencias descriptivas entre fraude y legítimas por ventana
+
+dt_resumen_numericas_largo <- melt(
+  dt_operaciones_etiquetadas[
+    ,
+    c(
+      "ventana_temporal",
+      "clase_fraude",
+      variables_numericas_fraude
+    ),
+    with = FALSE
+  ],
+  id.vars = c("ventana_temporal", "clase_fraude"),
+  measure.vars = variables_numericas_fraude,
+  variable.name = "variable",
+  value.name = "valor"
+)
+
+dt_resumen_numericas_clase <- dt_resumen_numericas_largo[
+  ,
+  .(
+    media = mean(valor),
+    mediana = median(valor),
+    p25 = quantile(valor, 0.25),
+    p75 = quantile(valor, 0.75)
+  ),
+  by = .(ventana_temporal, variable, clase_fraude)
+]
+
+dt_comparacion_numericas_clase <- dcast(
+  dt_resumen_numericas_clase,
+  ventana_temporal + variable ~ clase_fraude,
+  value.var = c("media", "mediana", "p25", "p75")
+)
+
+dt_comparacion_numericas_clase[
+  ,
+  diferencia_mediana_fraude_legitima := round(
+    mediana_fraude - mediana_legitima,
+    3
+  )
+]
+
+dt_comparacion_numericas_clase[
+  ,
+  diferencia_media_fraude_legitima := round(
+    media_fraude - media_legitima,
+    3
+  )
+]
+
+dt_comparacion_numericas_clase[
+  ,
+  `:=`(
+    media_fraude = round(media_fraude, 3),
+    media_legitima = round(media_legitima, 3),
+    mediana_fraude = round(mediana_fraude, 3),
+    mediana_legitima = round(mediana_legitima, 3),
+    p25_fraude = round(p25_fraude, 3),
+    p25_legitima = round(p25_legitima, 3),
+    p75_fraude = round(p75_fraude, 3),
+    p75_legitima = round(p75_legitima, 3)
+  )
+]
+
+dt_comparacion_numericas_clase[
+  order(variable, ventana_temporal)
+][]
+```
+
+
+## categoricas
+```{r}
+# Perfil de variables categóricas por ventana y clase
+
+dt_categoricas_largo <- melt(
+  dt_operaciones_etiquetadas[
+    ,
+    c(
+      "ventana_temporal",
+      "clase_fraude",
+      "es_fraude",
+      variables_categoricas_fraude
+    ),
+    with = FALSE
+  ],
+  id.vars = c("ventana_temporal", "clase_fraude", "es_fraude"),
+  measure.vars = variables_categoricas_fraude,
+  variable.name = "variable",
+  value.name = "categoria"
+)
+
+dt_categoricas_largo[
+  ,
+  categoria := as.character(categoria)
+]
+
+dt_categoricas_largo[]
+```
+
+
+```{r}
+
+# Tasa de fraude por categoría y ventana
+
+dt_tasa_fraude_ventana <- dt_operaciones_etiquetadas[
+  ,
+  .(
+    tasa_fraude_ventana = mean(es_fraude == TRUE),
+    n_etiquetadas_ventana = .N
+  ),
+  by = ventana_temporal
+]
+
+dt_perfil_categoricas_target <- dt_categoricas_largo[
+  ,
+  .(
+    n_operaciones = .N,
+    n_fraude = sum(es_fraude == TRUE),
+    n_legitimas = sum(es_fraude == FALSE),
+    tasa_fraude_categoria = mean(es_fraude == TRUE)
+  ),
+  by = .(ventana_temporal, variable, categoria)
+]
+
+dt_perfil_categoricas_target <- merge(
+  dt_perfil_categoricas_target,
+  dt_tasa_fraude_ventana,
+  by = "ventana_temporal"
+)
+
+dt_perfil_categoricas_target[
+  ,
+  lift_fraude := tasa_fraude_categoria / tasa_fraude_ventana
+]
+
+dt_perfil_categoricas_target[
+  ,
+  `:=`(
+    tasa_fraude_categoria_pct = round(100 * tasa_fraude_categoria, 3),
+    tasa_fraude_ventana_pct = round(100 * tasa_fraude_ventana, 3),
+    lift_fraude = round(lift_fraude, 3)
+  )
+]
+
+dt_perfil_categoricas_target[
+  order(variable, ventana_temporal, -lift_fraude)
+][
+  ,
+  .(
+    ventana_temporal,
+    variable,
+    categoria,
+    n_operaciones,
+    n_fraude,
+    n_legitimas,
+    tasa_fraude_categoria_pct,
+    tasa_fraude_ventana_pct,
+    lift_fraude
+  )
+][]
+```
+
+
+```{r}
+# Categoría con mayor concentración relativa de fraude por variable y ventana
+
+dt_top_categoria_fraude <- dt_perfil_categoricas_target[
+  order(ventana_temporal, variable, -lift_fraude, -n_fraude)
+][
+  ,
+  .SD[1],
+  by = .(ventana_temporal, variable)
+]
+
+dt_top_categoria_fraude[
+  order(variable, ventana_temporal)
+][
+  ,
+  .(
+    ventana_temporal,
+    variable,
+    categoria_top = categoria,
+    n_operaciones,
+    n_fraude,
+    tasa_fraude_categoria_pct,
+    tasa_fraude_ventana_pct,
+    lift_fraude
+  )
+][]
+```
+
+```{r}
+# Sanity check de categorías analizadas
+
+dt_sanity_categoricas <- dt_categoricas_largo[
+  ,
+  .(
+    n_filas = .N,
+    n_categorias = uniqueN(categoria),
+    categorias = paste(sort(unique(categoria)), collapse = ", ")
+  ),
+  by = variable
+][
+  order(variable)
+]
+
+dt_sanity_categoricas[]
+```
+
+
+# categóricas lift heatmap
+
+```{r}
+# Heatmap de lift de fraude por categoría y ventana
+
+dt_grafico_lift_categorias <- copy(dt_perfil_categoricas_target)
+
+dt_grafico_lift_categorias[
+  ,
+  etiqueta_categoria := paste0(variable, ": ", categoria)
+]
+
+dt_grafico_lift_categorias[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = unique(
+      dt_grafico_lift_categorias[
+        order(variable, categoria),
+        etiqueta_categoria
+      ]
+    )
+  )
+]
+
+grafico_lift_categorias <- ggplot(
+  dt_grafico_lift_categorias,
+  aes(
+    x = ventana_temporal,
+    y = etiqueta_categoria,
+    fill = lift_fraude
+  )
+) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_hline(
+    yintercept = c(4.5, 8.5),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(label = round(lift_fraude, 2)),
+    size = 3.4,
+    color = col_negro
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 1,
+    name = "Lift"
+  ) +
+  labs(
+    title = "TRANSACCIONES ETIQUETADAS. Concentración de fraude por categoría",
+    subtitle = "Lift de fraude por ventana. Valores mayores a 1 indican categorías con tasa de fraude superior al promedio de la ventana.",
+    x = "Ventana temporal",
+    y = "Categoría"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+
+# Guardado del heatmap de lift por categoría
+
+archivo_grafico_lift_categorias <- file.path(
+  directorio_graficos,
+  "eda_lift_fraude_categoricas_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_lift_categorias,
+  plot = grafico_lift_categorias,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_lift_categorias)
+
+
+grafico_lift_categorias
+```
+# numéricas densidades 
+
+```{r}
+# Tabla larga de variables numéricas para comparación fraude vs legítimas
+
+dt_numericas_largo <- melt(
+  dt_operaciones_etiquetadas[
+    ,
+    c(
+      "ventana_temporal",
+      "clase_fraude",
+      variables_numericas_fraude
+    ),
+    with = FALSE
+  ],
+  id.vars = c("ventana_temporal", "clase_fraude"),
+  measure.vars = variables_numericas_fraude,
+  variable.name = "variable",
+  value.name = "valor"
+)
+
+dt_numericas_largo[
+  ,
+  variable := factor(
+    variable,
+    levels = variables_numericas_fraude
+  )
+]
+
+dt_sanity_numericas_largo <- dt_numericas_largo[
+  ,
+  .(
+    n_filas = .N,
+    valor_minimo = round(min(valor), 3),
+    valor_maximo = round(max(valor), 3),
+    n_na = sum(is.na(valor))
+  ),
+  by = variable
+]
+
+dt_sanity_numericas_largo
+```
+
+
+```{r}
+# Densidades de variables numéricas por ventana y clase
+
+grafico_densidades_numericas <- ggplot(
+  dt_numericas_largo,
+  aes(
+    x = valor,
+    fill = clase_fraude,
+    color = clase_fraude
+  )
+) +
+  geom_density(
+    alpha = 0.28,
+    linewidth = 0.8,
+    adjust = 1.1
+  ) +
+  facet_grid(
+    variable ~ ventana_temporal,
+    scales = "free"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "legitima" = col_celeste,
+      "fraude" = col_rojo
+    ),
+    name = "Clase"
+  ) +
+  scale_color_manual(
+    values = c(
+      "legitima" = col_celeste,
+      "fraude" = col_rojo
+    ),
+    name = "Clase"
+  ) +
+  labs(
+    title = "TRANSACCIONES ETIQUETADAS. Distribución de variables numéricas según clase y ventana",
+    subtitle = "Comparación entre operaciones legítimas y fraudulentas.",
+    x = "Valor",
+    y = "Densidad"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Guardado del gráfico de densidades numéricas
+
+archivo_grafico_densidades_numericas <- file.path(
+  directorio_graficos,
+  "eda_densidades_numericas_fraude_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_densidades_numericas,
+  plot = grafico_densidades_numericas,
+  width = 14,
+  height = 9,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_densidades_numericas)
+
+grafico_densidades_numericas
+```
+
+# asociación numéricas-target heatmap
+
+
+
+```{r}
+
+# Función auxiliar robusta para AUC univariado por ranking
+
+calcular_auc_rank <- function(valor, target_binario) {
+  
+  datos_auc <- data.table(
+    valor_auc = as.numeric(valor),
+    target_auc = as.integer(target_binario)
+  )
+  
+  datos_auc <- datos_auc[
+    !is.na(valor_auc) & !is.na(target_auc)
+  ]
+  
+  n_positivos <- as.numeric(datos_auc[target_auc == 1, .N])
+  n_negativos <- as.numeric(datos_auc[target_auc == 0, .N])
+  
+  if (n_positivos == 0 | n_negativos == 0) {
+    return(NA_real_)
+  }
+  
+  datos_auc[
+    ,
+    ranking_valor := rank(valor_auc, ties.method = "average")
+  ]
+  
+  suma_rankings_positivos <- as.numeric(
+    datos_auc[
+      target_auc == 1,
+      sum(ranking_valor)
+    ]
+  )
+  
+  auc <- (
+    suma_rankings_positivos -
+      n_positivos * (n_positivos + 1) / 2
+  ) / (n_positivos * n_negativos)
+  
+  as.numeric(auc)
+}
+
+```
+
+```{r}
+# Asociación de variables numéricas con el target por ventana
+
+dt_asociacion_numericas_target <- dt_numericas_largo[
+  ,
+  .(
+    n_operaciones = .N,
+    n_fraude = sum(clase_fraude == "fraude"),
+    n_legitimas = sum(clase_fraude == "legitima"),
+    
+    media_fraude = mean(valor[clase_fraude == "fraude"]),
+    media_legitima = mean(valor[clase_fraude == "legitima"]),
+    
+    mediana_fraude = median(valor[clase_fraude == "fraude"]),
+    mediana_legitima = median(valor[clase_fraude == "legitima"]),
+    
+    p25_fraude = quantile(valor[clase_fraude == "fraude"], 0.25),
+    p75_fraude = quantile(valor[clase_fraude == "fraude"], 0.75),
+    p25_legitima = quantile(valor[clase_fraude == "legitima"], 0.25),
+    p75_legitima = quantile(valor[clase_fraude == "legitima"], 0.75),
+    
+    auc_univariado = calcular_auc_rank(
+      valor = valor,
+      target_binario = as.integer(clase_fraude == "fraude")
+    )
+  ),
+  by = .(ventana_temporal, variable)
+]
+
+dt_asociacion_numericas_target[
+  ,
+  `:=`(
+    diferencia_media_fraude_legitima = media_fraude - media_legitima,
+    diferencia_mediana_fraude_legitima = mediana_fraude - mediana_legitima,
+    auc_orientado = pmax(auc_univariado, 1 - auc_univariado)
+  )
+]
+
+columnas_redondeo_asociacion <- c(
+  "media_fraude",
+  "media_legitima",
+  "mediana_fraude",
+  "mediana_legitima",
+  "p25_fraude",
+  "p75_fraude",
+  "p25_legitima",
+  "p75_legitima",
+  "diferencia_media_fraude_legitima",
+  "diferencia_mediana_fraude_legitima",
+  "auc_univariado",
+  "auc_orientado"
+)
+
+dt_asociacion_numericas_target[
+  ,
+  (columnas_redondeo_asociacion) := lapply(
+    .SD,
+    round,
+    digits = 3
+  ),
+  .SDcols = columnas_redondeo_asociacion
+]
+
+dt_asociacion_numericas_target[
+  order(variable, ventana_temporal)
+]
+```
+
+
+```{r}
+# Chequeo de AUC orientado en T0 después de corregir overflow
+
+dt_asociacion_numericas_target[
+  ventana_temporal == "T0_1_12",
+  .(
+    ventana_temporal,
+    variable,
+    auc_univariado,
+    auc_orientado,
+    diferencia_mediana_fraude_legitima
+  )
+]
+```
+
+```{r}
+# Heatmap de AUC orientado para variables numéricas
+
+dt_grafico_auc_numericas <- copy(dt_asociacion_numericas_target)
+
+grafico_auc_numericas <- ggplot(
+  dt_grafico_auc_numericas,
+  aes(
+    x = ventana_temporal,
+    y = variable,
+    fill = auc_orientado
+  )
+) +
+  geom_tile(color = "white", linewidth = 0.9) +
+  geom_text(
+    aes(label = round(auc_orientado, 3)),
+    size = 4,
+    color = col_negro
+  ) +
+  scale_fill_gradient(
+    low = "white",
+    high = col_rojo,
+    limits = c(0.5, 1),
+    name = "AUC orientado"
+  ) +
+  labs(
+    title = "TRANSACCIONES ETIQUETADAS. Fuerza de separación fraude vs. legítimas",
+    subtitle = "AUC orientado por variable numérica y ventana. Valores cercanos a 0.5 indican baja separación.",
+    x = "Ventana temporal",
+    y = "Variable"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+# Guardado del heatmap de AUC orientado
+
+archivo_grafico_auc_numericas <- file.path(
+  directorio_graficos,
+  "eda_auc_numericas_target_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_auc_numericas,
+  plot = grafico_auc_numericas,
+  width = 11,
+  height = 5.5,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_auc_numericas)
+
+grafico_auc_numericas
+```
+
+# asociación entre numéricas
+
+```{r}
+# Correlaciones entre variables numéricas por ventana
+
+calcular_correlaciones_numericas <- function(datos_ventana, metodo_correlacion) {
+  
+  matriz_correlacion <- cor(
+    datos_ventana[, ..variables_numericas_fraude],
+    method = metodo_correlacion,
+    use = "complete.obs"
+  )
+  
+  dt_correlacion <- as.data.table(
+    as.table(matriz_correlacion)
+  )
+  
+  setnames(
+    dt_correlacion,
+    c("variable_1", "variable_2", "correlacion")
+  )
+  
+  dt_correlacion[
+    ,
+    metodo := metodo_correlacion
+  ]
+  
+  dt_correlacion
+}
+
+dt_correlaciones_numericas <- rbindlist(
+  lapply(
+    levels(dt_operaciones_etiquetadas$ventana_temporal),
+    function(ventana_actual) {
+      
+      datos_ventana_actual <- dt_operaciones_etiquetadas[
+        ventana_temporal == ventana_actual
+      ]
+      
+      dt_pearson <- calcular_correlaciones_numericas(
+        datos_ventana = datos_ventana_actual,
+        metodo_correlacion = "pearson"
+      )
+      
+      dt_spearman <- calcular_correlaciones_numericas(
+        datos_ventana = datos_ventana_actual,
+        metodo_correlacion = "spearman"
+      )
+      
+      dt_resultado <- rbindlist(
+        list(dt_pearson, dt_spearman)
+      )
+      
+      dt_resultado[
+        ,
+        ventana_temporal := ventana_actual
+      ]
+      
+      dt_resultado
+    }
+  )
+)
+
+dt_correlaciones_numericas[
+  variable_1 != variable_2
+][
+  order(metodo, ventana_temporal, variable_1, variable_2)
+]
+```
+
+## spearman
+```{r}
+# Heatmap de correlaciones Spearman entre variables numéricas
+
+dt_grafico_correlaciones_spearman <- copy(
+  dt_correlaciones_numericas[
+    metodo == "spearman"
+  ]
+)
+
+dt_grafico_correlaciones_spearman[
+  ,
+  variable_1 := factor(
+    variable_1,
+    levels = variables_numericas_fraude
+  )
+]
+
+dt_grafico_correlaciones_spearman[
+  ,
+  variable_2 := factor(
+    variable_2,
+    levels = rev(variables_numericas_fraude)
+  )
+]
+
+grafico_correlaciones_spearman <- ggplot(
+  dt_grafico_correlaciones_spearman,
+  aes(
+    x = variable_1,
+    y = variable_2,
+    fill = correlacion
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 1,
+    width = 0.98,
+    height = 0.98
+  ) +
+  geom_text(
+    aes(label = round(correlacion, 2)),
+    size = 3.8,
+    color = col_negro
+  ) +
+  facet_wrap(
+    ~ ventana_temporal,
+    nrow = 1
+  ) +
+  coord_fixed() +
+  scale_x_discrete(
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(
+    expand = c(0, 0)
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Spearman"
+  ) +
+  labs(
+    title = "Correlación entre variables numéricas por ventana",
+    subtitle = "Coeficiente Spearman sobre operaciones etiquetadas.",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(
+      color = "#D0D5DD",
+      fill = NA,
+      linewidth = 0.9
+    ),
+    panel.spacing.x = unit(1.2, "lines"),
+    strip.background = element_rect(
+      fill = "#F2F4F7",
+      color = "#D0D5DD",
+      linewidth = 0.8
+    ),
+    strip.text = element_text(
+      face = "bold",
+      size = 11,
+      margin = margin(t = 6, r = 6, b = 6, l = 6)
+    ),
+    axis.text.x = element_text(
+      angle = 35,
+      hjust = 1,
+      vjust = 1
+    ),
+    axis.text.y = element_text(
+      hjust = 1
+    ),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Guardado del heatmap de correlaciones Spearman
+
+archivo_grafico_correlaciones_spearman <- file.path(
+  directorio_graficos,
+  "eda_correlaciones_spearman_numericas_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_correlaciones_spearman,
+  plot = grafico_correlaciones_spearman,
+  width = 14,
+  height = 4.8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_correlaciones_spearman)
+
+grafico_correlaciones_spearman
+```
+
+
+## pearson
+
+```{r}
+# Heatmap de correlaciones Pearson entre variables numéricas
+
+dt_grafico_correlaciones_pearson <- copy(
+  dt_correlaciones_numericas[
+    metodo == "pearson"
+  ]
+)
+
+dt_grafico_correlaciones_pearson[
+  ,
+  variable_1 := factor(
+    variable_1,
+    levels = variables_numericas_fraude
+  )
+]
+
+dt_grafico_correlaciones_pearson[
+  ,
+  variable_2 := factor(
+    variable_2,
+    levels = rev(variables_numericas_fraude)
+  )
+]
+
+grafico_correlaciones_pearson <- ggplot(
+  dt_grafico_correlaciones_pearson,
+  aes(
+    x = variable_1,
+    y = variable_2,
+    fill = correlacion
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 1,
+    width = 0.98,
+    height = 0.98
+  ) +
+  geom_text(
+    aes(label = round(correlacion, 2)),
+    size = 3.8,
+    color = col_negro
+  ) +
+  facet_wrap(
+    ~ ventana_temporal,
+    nrow = 1
+  ) +
+  coord_fixed() +
+  scale_x_discrete(
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(
+    expand = c(0, 0)
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Pearson"
+  ) +
+  labs(
+    title = "Correlación lineal entre variables numéricas por ventana",
+    subtitle = "Coeficiente Pearson sobre operaciones etiquetadas.",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(
+      color = "#D0D5DD",
+      fill = NA,
+      linewidth = 0.9
+    ),
+    panel.spacing.x = unit(1.2, "lines"),
+    strip.background = element_rect(
+      fill = "#F2F4F7",
+      color = "#D0D5DD",
+      linewidth = 0.8
+    ),
+    strip.text = element_text(
+      face = "bold",
+      size = 11,
+      margin = margin(t = 6, r = 6, b = 6, l = 6)
+    ),
+    axis.text.x = element_text(
+      angle = 35,
+      hjust = 1,
+      vjust = 1
+    ),
+    axis.text.y = element_text(
+      hjust = 1
+    ),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+# Guardado del heatmap de correlaciones Pearson
+
+archivo_grafico_correlaciones_pearson <- file.path(
+  directorio_graficos,
+  "eda_correlaciones_pearson_numericas_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_correlaciones_pearson,
+  plot = grafico_correlaciones_pearson,
+  width = 14,
+  height = 4.8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_correlaciones_pearson)
+
+
+grafico_correlaciones_pearson
+```
+# asociación entre categóricas
+
+```{r}
+# Función auxiliar para calcular Cramér's V
+
+calcular_cramers_v <- function(variable_a, variable_b) {
+  
+  tabla_contingencia <- table(variable_a, variable_b)
+  
+  if (nrow(tabla_contingencia) < 2 | ncol(tabla_contingencia) < 2) {
+    return(NA_real_)
+  }
+  
+  test_chi <- suppressWarnings(
+    chisq.test(tabla_contingencia, correct = FALSE)
+  )
+  
+  chi_cuadrado <- as.numeric(test_chi$statistic)
+  n_total <- sum(tabla_contingencia)
+  dimension_minima <- min(nrow(tabla_contingencia), ncol(tabla_contingencia))
+  
+  cramers_v <- sqrt(
+    chi_cuadrado / (n_total * (dimension_minima - 1))
+  )
+  
+  as.numeric(cramers_v)
+}
+```
+
+```{r}
+# Asociación entre variables categóricas por ventana
+
+pares_categoricas <- CJ(
+  variable_1 = variables_categoricas_fraude,
+  variable_2 = variables_categoricas_fraude
+)
+
+dt_asociacion_categoricas <- rbindlist(
+  lapply(
+    levels(dt_operaciones_etiquetadas$ventana_temporal),
+    function(ventana_actual) {
+      
+      datos_ventana_actual <- dt_operaciones_etiquetadas[
+        ventana_temporal == ventana_actual
+      ]
+      
+      dt_resultado_ventana <- copy(pares_categoricas)
+      
+      dt_resultado_ventana[
+        ,
+        cramers_v := mapply(
+          function(variable_1_actual, variable_2_actual) {
+            calcular_cramers_v(
+              variable_a = datos_ventana_actual[[variable_1_actual]],
+              variable_b = datos_ventana_actual[[variable_2_actual]]
+            )
+          },
+          variable_1,
+          variable_2
+        )
+      ]
+      
+      dt_resultado_ventana[
+        ,
+        ventana_temporal := ventana_actual
+      ]
+      
+      dt_resultado_ventana
+    }
+  )
+)
+
+dt_asociacion_categoricas[
+  ,
+  cramers_v := round(cramers_v, 3)
+]
+
+dt_asociacion_categoricas[
+  order(ventana_temporal, variable_1, variable_2)
+]
+```
+```{r}
+# Sanity check de asociaciones categóricas
+
+dt_sanity_asociacion_categoricas <- dt_asociacion_categoricas[
+  ,
+  .(
+    n_pares = .N,
+    n_na = sum(is.na(cramers_v)),
+    minimo_cramers_v = min(cramers_v, na.rm = TRUE),
+    maximo_cramers_v = max(cramers_v, na.rm = TRUE)
+  ),
+  by = ventana_temporal
+]
+
+dt_sanity_asociacion_categoricas
+```
+
+```{r}
+# Heatmap de Cramér's V entre variables categóricas
+
+dt_grafico_cramers_v <- copy(dt_asociacion_categoricas)
+
+dt_grafico_cramers_v[
+  ,
+  variable_1 := factor(
+    variable_1,
+    levels = variables_categoricas_fraude
+  )
+]
+
+dt_grafico_cramers_v[
+  ,
+  variable_2 := factor(
+    variable_2,
+    levels = rev(variables_categoricas_fraude)
+  )
+]
+
+grafico_cramers_v_categoricas <- ggplot(
+  dt_grafico_cramers_v,
+  aes(
+    x = variable_1,
+    y = variable_2,
+    fill = cramers_v
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 1,
+    width = 0.98,
+    height = 0.98
+  ) +
+  geom_text(
+    aes(label = round(cramers_v, 2)),
+    size = 3.8,
+    color = col_negro
+  ) +
+  facet_wrap(
+    ~ ventana_temporal,
+    nrow = 1
+  ) +
+  coord_fixed() +
+  scale_x_discrete(
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(
+    expand = c(0, 0)
+  ) +
+  scale_fill_gradient(
+    low = "white",
+    high = col_purpura,
+    limits = c(0, 1),
+    name = "Cramér's V"
+  ) +
+  labs(
+    title = "Asociación entre variables categóricas por ventana",
+    subtitle = "Cramér's V sobre operaciones etiquetadas. Valores cercanos a 0 indican baja asociación.",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(
+      color = "#D0D5DD",
+      fill = NA,
+      linewidth = 0.9
+    ),
+    panel.spacing.x = unit(1.2, "lines"),
+    strip.background = element_rect(
+      fill = "#F2F4F7",
+      color = "#D0D5DD",
+      linewidth = 0.8
+    ),
+    strip.text = element_text(
+      face = "bold",
+      size = 11,
+      margin = margin(t = 6, r = 6, b = 6, l = 6)
+    ),
+    axis.text.x = element_text(
+      angle = 35,
+      hjust = 1,
+      vjust = 1
+    ),
+    axis.text.y = element_text(
+      hjust = 1
+    ),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+# Guardado del heatmap de Cramér's V
+
+archivo_grafico_cramers_v_categoricas <- file.path(
+  directorio_graficos,
+  "eda_asociacion_categoricas_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_cramers_v_categoricas,
+  plot = grafico_cramers_v_categoricas,
+  width = 14,
+  height = 4.8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_cramers_v_categoricas)
+
+grafico_cramers_v_categoricas
+```
+# asociación categoricas-numericas
+
+```{r}
+# Tabla larga para asociación mixta numérica-categórica
+
+dt_mixta_base <- dt_operaciones_etiquetadas[
+  ,
+  c(
+    "ventana_temporal",
+    "clase_fraude",
+    variables_numericas_fraude,
+    variables_categoricas_fraude
+  ),
+  with = FALSE
+]
+
+dt_mixta_numericas_largo <- melt(
+  dt_mixta_base,
+  id.vars = c(
+    "ventana_temporal",
+    "clase_fraude",
+    variables_categoricas_fraude
+  ),
+  measure.vars = variables_numericas_fraude,
+  variable.name = "variable_numerica",
+  value.name = "valor_numerico"
+)
+
+dt_mixta_largo <- melt(
+  dt_mixta_numericas_largo,
+  id.vars = c(
+    "ventana_temporal",
+    "clase_fraude",
+    "variable_numerica",
+    "valor_numerico"
+  ),
+  measure.vars = variables_categoricas_fraude,
+  variable.name = "variable_categorica",
+  value.name = "categoria"
+)
+
+dt_mixta_largo[
+  ,
+  categoria := as.character(categoria)
+]
+
+dt_sanity_mixta_largo <- dt_mixta_largo[
+  ,
+  .(
+    n_filas = .N,
+    n_ventanas = uniqueN(ventana_temporal),
+    n_clases = uniqueN(clase_fraude),
+    n_variables_numericas = uniqueN(variable_numerica),
+    n_variables_categoricas = uniqueN(variable_categorica),
+    n_na_valor = sum(is.na(valor_numerico)),
+    n_na_categoria = sum(is.na(categoria))
+  )
+]
+
+dt_sanity_mixta_largo
+```
+
+```{r}
+# Resumen de variables numéricas por categoría, ventana y clase
+
+dt_resumen_mixto_clase <- dt_mixta_largo[
+  ,
+  .(
+    n_operaciones = .N,
+    mediana = median(valor_numerico),
+    media = mean(valor_numerico),
+    p25 = quantile(valor_numerico, 0.25),
+    p75 = quantile(valor_numerico, 0.75)
+  ),
+  by = .(
+    ventana_temporal,
+    clase_fraude,
+    variable_numerica,
+    variable_categorica,
+    categoria
+  )
+]
+
+columnas_redondeo_mixto <- c(
+  "mediana",
+  "media",
+  "p25",
+  "p75"
+)
+
+dt_resumen_mixto_clase[
+  ,
+  (columnas_redondeo_mixto) := lapply(
+    .SD,
+    round,
+    digits = 3
+  ),
+  .SDcols = columnas_redondeo_mixto
+]
+
+dt_resumen_mixto_clase[
+  order(
+    variable_numerica,
+    variable_categorica,
+    categoria,
+    ventana_temporal,
+    clase_fraude
+  )
+]
+```
+
+```{r}
+# Diferencia de medianas entre fraude y legítimas dentro de cada categoría
+
+dt_mixto_mediana_clase <- dt_resumen_mixto_clase[
+  ,
+  .(
+    mediana = mediana,
+    n_operaciones = n_operaciones
+  ),
+  by = .(
+    ventana_temporal,
+    variable_numerica,
+    variable_categorica,
+    categoria,
+    clase_fraude
+  )
+]
+
+dt_mixto_comparacion_clase <- dcast(
+  dt_mixto_mediana_clase,
+  ventana_temporal + variable_numerica + variable_categorica + categoria ~ clase_fraude,
+  value.var = c("mediana", "n_operaciones")
+)
+
+dt_mixto_comparacion_clase[
+  ,
+  diferencia_mediana_fraude_legitima := round(
+    mediana_fraude - mediana_legitima,
+    3
+  )
+]
+
+dt_mixto_comparacion_clase[
+  ,
+  n_total_categoria := n_operaciones_fraude + n_operaciones_legitima
+]
+
+dt_mixto_comparacion_clase[
+  order(
+    variable_numerica,
+    variable_categorica,
+    categoria,
+    ventana_temporal
+  )
+]
+```
+
+La separación entre fraude y operación legítima para una variable numérica se mantiene igual dentro de cada categoría operativa o depende del canal, la franja horaria o el tipo de dispositivo?
+
+
+```{r}
+# Heatmap mixto para monto_log por categorías
+
+dt_grafico_mixto_monto <- dt_mixto_comparacion_clase[
+  variable_numerica == "monto_log"
+]
+
+dt_grafico_mixto_monto[
+  ,
+  etiqueta_categoria := paste0(variable_categorica, ": ", categoria)
+]
+
+dt_grafico_mixto_monto[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = unique(
+      dt_grafico_mixto_monto[
+        order(variable_categorica, categoria),
+        etiqueta_categoria
+      ]
+    )
+  )
+]
+
+grafico_mixto_monto <- ggplot(
+  dt_grafico_mixto_monto,
+  aes(
+    x = ventana_temporal,
+    y = etiqueta_categoria,
+    fill = diferencia_mediana_fraude_legitima
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = c(4.5, 8.5),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(label = round(diferencia_mediana_fraude_legitima, 2)),
+    size = 3.4,
+    color = col_negro
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    name = "Dif. mediana"
+  ) +
+  labs(
+    title = "Separación de monto_log entre fraude y legítimas por categoría",
+    subtitle = "Diferencia de medianas dentro de cada categoría y ventana. Operaciones etiquetadas",
+    x = "Ventana temporal",
+    y = "Categoría"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+# Guardado del heatmap mixto para monto_log
+
+archivo_grafico_mixto_monto <- file.path(
+  directorio_graficos,
+  "eda_mixto_monto_log_por_categorias_y_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_mixto_monto,
+  plot = grafico_mixto_monto,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_mixto_monto)
+
+grafico_mixto_monto
+```
+
+
+```{r}
+# Heatmap mixto para terminal_risk_score por categorías
+
+dt_grafico_mixto_terminal <- dt_mixto_comparacion_clase[
+  variable_numerica == "terminal_risk_score"
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  etiqueta_categoria := paste0(variable_categorica, ": ", categoria)
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = unique(
+      dt_grafico_mixto_terminal[
+        order(variable_categorica, categoria),
+        etiqueta_categoria
+      ]
+    )
+  )
+]
+
+grafico_mixto_terminal <- ggplot(
+  dt_grafico_mixto_terminal,
+  aes(
+    x = ventana_temporal,
+    y = etiqueta_categoria,
+    fill = diferencia_mediana_fraude_legitima
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = c(4.5, 8.5),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(label = round(diferencia_mediana_fraude_legitima, 2)),
+    size = 3.4,
+    color = col_negro
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    name = "Dif. mediana"
+  ) +
+  labs(
+    title = "Separación de terminal_risk_score entre fraude y legítimas por categoría",
+    subtitle = "Diferencia de medianas dentro de cada categoría y ventana. Operaciones etiquetadas",
+    x = "Ventana temporal",
+    y = "Categoría"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+
+# Guardado del heatmap mixto para terminal_risk_score
+
+archivo_grafico_mixto_terminal <- file.path(
+  directorio_graficos,
+  "eda_mixto_terminal_risk_score_por_categorias_y_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_mixto_terminal,
+  plot = grafico_mixto_terminal,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_mixto_terminal)
+
+
+grafico_mixto_terminal
+```
+```{r}
+# Heatmap mixto para secuencia_24h por categorías
+
+dt_grafico_mixto_secuencia <- dt_mixto_comparacion_clase[
+  variable_numerica == "secuencia_24h"
+]
+
+dt_grafico_mixto_secuencia[
+  ,
+  etiqueta_categoria := paste0(variable_categorica, ": ", categoria)
+]
+
+dt_grafico_mixto_secuencia[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = unique(
+      dt_grafico_mixto_secuencia[
+        order(variable_categorica, categoria),
+        etiqueta_categoria
+      ]
+    )
+  )
+]
+
+grafico_mixto_secuencia <- ggplot(
+  dt_grafico_mixto_secuencia,
+  aes(
+    x = ventana_temporal,
+    y = etiqueta_categoria,
+    fill = diferencia_mediana_fraude_legitima
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = c(4.5, 8.5),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(label = round(diferencia_mediana_fraude_legitima, 2)),
+    size = 3.4,
+    color = col_negro
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    name = "Dif. mediana"
+  ) +
+  labs(
+    title = "Separación de secuencia_24h entre fraude y legítimas por categoría",
+    subtitle = "Diferencia de medianas dentro de cada categoría y ventana.",
+    x = "Ventana temporal",
+    y = "Categoría"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+# Guardado del heatmap mixto para secuencia_24h
+
+archivo_grafico_mixto_secuencia <- file.path(
+  directorio_graficos,
+  "eda_mixto_secuencia_24h_por_categorias_y_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_mixto_secuencia,
+  plot = grafico_mixto_secuencia,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_mixto_secuencia)
+
+grafico_mixto_secuencia
+```
+# TODAS LAS OPERACIONES
+más allá del target, cambió la población operativa?
+
+## versus t0
+
+```{r}
+# Base de operaciones para análisis de drift marginal
+
+dt_drift_marginal <- copy(
+  dt_operaciones[
+    ,
+    c(
+      "ventana_temporal",
+      "mes",
+      variables_numericas_fraude,
+      variables_categoricas_fraude
+    ),
+    with = FALSE
+  ]
+)
+
+dt_sanity_drift_marginal <- dt_drift_marginal[
+  ,
+  .(
+    n_operaciones = .N,
+    mes_minimo = min(mes),
+    mes_maximo = max(mes),
+    n_meses = uniqueN(mes)
+  ),
+  by = ventana_temporal
+][
+  order(ventana_temporal)
+]
+
+dt_sanity_drift_marginal
+```
+```{r}
+# Resumen marginal de variables numéricas por ventana
+
+dt_drift_numericas_largo <- melt(
+  dt_drift_marginal[
+    ,
+    c(
+      "ventana_temporal",
+      variables_numericas_fraude
+    ),
+    with = FALSE
+  ],
+  id.vars = "ventana_temporal",
+  measure.vars = variables_numericas_fraude,
+  variable.name = "variable",
+  value.name = "valor"
+)
+
+dt_resumen_drift_numericas <- dt_drift_numericas_largo[
+  ,
+  .(
+    n_operaciones = .N,
+    media = mean(valor),
+    mediana = median(valor),
+    p25 = quantile(valor, 0.25),
+    p75 = quantile(valor, 0.75),
+    p10 = quantile(valor, 0.10),
+    p90 = quantile(valor, 0.90)
+  ),
+  by = .(ventana_temporal, variable)
+]
+
+columnas_redondeo_drift_numericas <- c(
+  "media",
+  "mediana",
+  "p25",
+  "p75",
+  "p10",
+  "p90"
+)
+
+dt_resumen_drift_numericas[
+  ,
+  (columnas_redondeo_drift_numericas) := lapply(
+    .SD,
+    round,
+    digits = 3
+  ),
+  .SDcols = columnas_redondeo_drift_numericas
+]
+
+dt_resumen_drift_numericas[
+  order(variable, ventana_temporal)
+]
+```
+
+“No se observaron desplazamientos marginales relevantes en las variables numéricas al considerar todas las operaciones; por lo tanto, el cambio relevante parece estar en la señal respecto del target y no en la distribución global de las features”.
+
+```{r}
+# Drift marginal de variables categóricas usando todas las operaciones
+
+dt_drift_categoricas_largo <- melt(
+  dt_drift_marginal[
+    ,
+    c(
+      "ventana_temporal",
+      variables_categoricas_fraude
+    ),
+    with = FALSE
+  ],
+  id.vars = "ventana_temporal",
+  measure.vars = variables_categoricas_fraude,
+  variable.name = "variable",
+  value.name = "categoria"
+)
+
+dt_drift_categoricas_largo[
+  ,
+  categoria := as.character(categoria)
+]
+
+dt_resumen_drift_categoricas <- dt_drift_categoricas_largo[
+  ,
+  .(
+    n_operaciones = .N
+  ),
+  by = .(ventana_temporal, variable, categoria)
+]
+
+dt_resumen_drift_categoricas[
+  ,
+  pct_operaciones := 100 * n_operaciones / sum(n_operaciones),
+  by = .(ventana_temporal, variable)
+]
+
+dt_resumen_drift_categoricas[
+  ,
+  pct_operaciones := round(pct_operaciones, 2)
+]
+
+dt_resumen_drift_categoricas[
+  order(variable, categoria, ventana_temporal)
+]
+```
+
+```{r}
+# Cambio de proporciones categóricas respecto de T0
+
+dt_proporcion_t0_categoricas <- dt_resumen_drift_categoricas[
+  ventana_temporal == "T0_1_12",
+  .(
+    variable,
+    categoria,
+    pct_operaciones_t0 = pct_operaciones
+  )
+]
+
+dt_drift_categoricas_vs_t0 <- merge(
+  dt_resumen_drift_categoricas,
+  dt_proporcion_t0_categoricas,
+  by = c("variable", "categoria")
+)
+
+dt_drift_categoricas_vs_t0[
+  ,
+  diferencia_pct_vs_t0 := round(
+    pct_operaciones - pct_operaciones_t0,
+    2
+  )
+]
+
+dt_drift_categoricas_vs_t0[
+  order(variable, categoria, ventana_temporal)
+]
+```
+
+
+```{r}
+# Heatmap de drift marginal categórico respecto de T0
+
+dt_grafico_drift_categoricas <- copy(dt_drift_categoricas_vs_t0)
+
+dt_grafico_drift_categoricas[
+  ,
+  etiqueta_categoria := paste0(variable, ": ", categoria)
+]
+
+dt_grafico_drift_categoricas[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = unique(
+      dt_grafico_drift_categoricas[
+        order(variable, categoria),
+        etiqueta_categoria
+      ]
+    )
+  )
+]
+
+grafico_drift_categoricas <- ggplot(
+  dt_grafico_drift_categoricas,
+  aes(
+    x = ventana_temporal,
+    y = etiqueta_categoria,
+    fill = diferencia_pct_vs_t0
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = c(4.5, 8.5),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(label = round(diferencia_pct_vs_t0, 1)),
+    size = 3.4,
+    color = col_negro
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    name = "Dif. p.p.\nvs T0"
+  ) +
+  labs(
+    title = "TODAS LAS TRANSACCIONES. Drift marginal categóricas",
+    subtitle = "Cambio en puntos porcentuales respecto de T0 usando todas las operaciones, sin utilizar el target.",
+    x = "Ventana temporal",
+    y = "Categoría"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+# Guardado del heatmap de drift marginal categórico
+
+archivo_grafico_drift_categoricas <- file.path(
+  directorio_graficos,
+  "eda_drift_marginal_categoricas_vs_t0.png"
+)
+
+ggsave(
+  filename = archivo_grafico_drift_categoricas,
+  plot = grafico_drift_categoricas,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_drift_categoricas)
+
+grafico_drift_categoricas
+```
+```{r}
+
+```
+
+## versus ventana previa
+
+```{r}
+# Cambio de proporciones categóricas respecto de la ventana previa
+
+dt_drift_categoricas_secuencial <- copy(
+  dt_resumen_drift_categoricas
+)
+
+dt_drift_categoricas_secuencial[
+  ,
+  ventana_temporal := factor(
+    ventana_temporal,
+    levels = orden_ventanas_temporales
+  )
+]
+
+setorder(
+  dt_drift_categoricas_secuencial,
+  variable,
+  categoria,
+  ventana_temporal
+)
+
+dt_drift_categoricas_secuencial[
+  ,
+  pct_operaciones_ventana_previa := shift(
+    pct_operaciones,
+    n = 1,
+    type = "lag"
+  ),
+  by = .(variable, categoria)
+]
+
+dt_drift_categoricas_secuencial[
+  ,
+  diferencia_pct_vs_ventana_previa := round(
+    pct_operaciones - pct_operaciones_ventana_previa,
+    2
+  )
+]
+
+dt_drift_categoricas_secuencial[
+  ,
+  ventana_comparacion := fifelse(
+    is.na(pct_operaciones_ventana_previa),
+    "base",
+    "vs ventana previa"
+  )
+]
+
+dt_drift_categoricas_secuencial[
+  order(variable, categoria, ventana_temporal)
+]
+```
+
+```{r}
+# Heatmap de drift marginal categórico respecto de la ventana previa
+
+dt_grafico_drift_categoricas_secuencial <- copy(
+  dt_drift_categoricas_secuencial
+)
+
+dt_grafico_drift_categoricas_secuencial[
+  ,
+  etiqueta_categoria := paste0(variable, ": ", categoria)
+]
+
+dt_grafico_drift_categoricas_secuencial[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = unique(
+      dt_grafico_drift_categoricas_secuencial[
+        order(variable, categoria),
+        etiqueta_categoria
+      ]
+    )
+  )
+]
+
+grafico_drift_categoricas_secuencial <- ggplot(
+  dt_grafico_drift_categoricas_secuencial,
+  aes(
+    x = ventana_temporal,
+    y = etiqueta_categoria,
+    fill = diferencia_pct_vs_ventana_previa
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = c(4.5, 8.5),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(
+      label = fifelse(
+        is.na(diferencia_pct_vs_ventana_previa),
+        "base",
+        as.character(round(diferencia_pct_vs_ventana_previa, 1))
+      )
+    ),
+    size = 3.4,
+    color = col_negro
+  ) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    name = "Dif. p.p.\nvs previa",
+    na.value = "#F2F4F7"
+  ) +
+  labs(
+    title = "TODAS LAS TRANSACCIONES. Drift marginal secuencial de categóricas",
+    subtitle = "Cambio en puntos porcentuales respecto de la ventana temporal anterior usando todas las operaciones, sin utilizar el target.",
+    x = "Ventana temporal",
+    y = "Categoría"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+# Guardado del heatmap secuencial de drift marginal categórico
+
+archivo_grafico_drift_categoricas_secuencial <- file.path(
+  directorio_graficos,
+  "eda_drift_marginal_categoricas_secuencial.png"
+)
+
+ggsave(
+  filename = archivo_grafico_drift_categoricas_secuencial,
+  plot = grafico_drift_categoricas_secuencial,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_drift_categoricas_secuencial)
+
+grafico_drift_categoricas_secuencial
+```
+# RESUMEN
+
+```{r}
+# Tabla síntesis del análisis exploratorio
+
+dt_sintesis_exploratoria <- data.table(
+  variable = c(
+    "monto_log",
+    "terminal_risk_score",
+    "secuencia_24h",
+    "canal",
+    "hora_bin",
+    "dispositivo"
+  ),
+  
+  tipo_variable = c(
+    "numérica",
+    "numérica",
+    "numérica",
+    "categórica",
+    "categórica",
+    "categórica"
+  ),
+  
+  evidencia_target = c(
+    "Alta separación fraude-legítima hasta T1_19_21. Caída marcada en T2_22_24.",
+    "Separación casi perfecta en T0. Señal decreciente en T1 y casi nula desde T1_19_21.",
+    "AUC cercano a 0.5 en todas las ventanas. Baja señal univariada.",
+    "Algunas categorías concentran fraude por lift dentro de ventana.",
+    "Algunas franjas muestran concentración relativa de fraude, pero sin patrón estructural fuerte.",
+    "Algunos tipos de dispositivo pueden concentrar fraude, pero sin acoplamiento fuerte con otras categóricas."
+  ),
+  
+  evidencia_asociacion_interna = c(
+    "Correlaciones bajas con las otras numéricas.",
+    "Correlaciones bajas con las otras numéricas.",
+    "Correlaciones bajas con las otras numéricas.",
+    "Cramér's V bajo con hora_bin y dispositivo.",
+    "Cramér's V bajo con canal y dispositivo.",
+    "Cramér's V bajo con canal y hora_bin."
+  ),
+  
+  evidencia_mixta = c(
+    "La caída en T2 aparece de forma transversal dentro de canal, hora_bin y dispositivo.",
+    "El colapso de la señal aparece de forma transversal dentro de canal, hora_bin y dispositivo.",
+    "Diferencias de mediana casi siempre iguales a cero; saltos aislados atribuibles a su carácter discreto.",
+    "No explica por sí sola la caída de monto ni terminal_risk_score.",
+    "No explica por sí sola la caída de monto ni terminal_risk_score.",
+    "No explica por sí sola la caída de monto ni terminal_risk_score."
+  ),
+  
+  evidencia_drift_marginal = c(
+    "Distribución marginal global estable usando todas las operaciones.",
+    "Distribución marginal global estable usando todas las operaciones.",
+    "Distribución marginal global estable usando todas las operaciones.",
+    "Cambios secuenciales pequeños en puntos porcentuales.",
+    "Cambios secuenciales pequeños en puntos porcentuales.",
+    "Cambios secuenciales pequeños en puntos porcentuales."
+  ),
+  
+  interpretacion = c(
+    "El segundo drift parece afectar la relación entre monto y fraude, no el monto global de toda la población operativa.",
+    "Variable central para explicar el colapso de M3: pierde valor discriminativo bajo el nuevo régimen.",
+    "No emerge como señal robusta en el EDA; podría aportar solo por interacción dentro de modelos.",
+    "Aporta contexto operativo y lift, pero no evidencia un cambio marginal suficientemente fuerte para explicar el drift.",
+    "Aporta contexto operativo y lift, pero no evidencia un cambio marginal suficientemente fuerte para explicar el drift.",
+    "Aporta contexto operativo y lift, pero no evidencia un cambio marginal suficientemente fuerte para explicar el drift."
+  )
+)
+
+dt_sintesis_exploratoria
+```
+```{r}
+# Tabla compacta de hallazgos principales
+
+dt_sintesis_compacta <- dt_sintesis_exploratoria[
+  ,
+  .(
+    variable,
+    tipo_variable,
+    hallazgo_principal = interpretacion
+  )
+]
+
+dt_sintesis_compacta
+```
+
+```{r}
+# Guardado de tablas síntesis
+
+archivo_sintesis_exploratoria <- file.path(
+  directorio_graficos,
+  "tabla_sintesis_exploratoria_features.csv"
+)
+
+archivo_sintesis_compacta <- file.path(
+  directorio_graficos,
+  "tabla_sintesis_compacta_features.csv"
+)
+
+fwrite(
+  dt_sintesis_exploratoria,
+  archivo_sintesis_exploratoria
+)
+
+fwrite(
+  dt_sintesis_compacta,
+  archivo_sintesis_compacta
+)
+
+data.table(
+  archivo = c(
+    archivo_sintesis_exploratoria,
+    archivo_sintesis_compacta
+  ),
+  existe = c(
+    file.exists(archivo_sintesis_exploratoria),
+    file.exists(archivo_sintesis_compacta)
+  )
+)
+```
+
+# verifico AUC t1_13_15
+
+```{r}
+# Verificación independiente de AUC para terminal_risk_score
+
+calcular_auc_rank_verificacion <- function(valor, target_binario) {
+  
+  datos_auc <- data.table(
+    valor_auc = as.numeric(valor),
+    target_auc = as.integer(target_binario)
+  )
+  
+  datos_auc <- datos_auc[
+    !is.na(valor_auc) & !is.na(target_auc)
+  ]
+  
+  n_positivos <- as.numeric(datos_auc[target_auc == 1, .N])
+  n_negativos <- as.numeric(datos_auc[target_auc == 0, .N])
+  
+  if (n_positivos == 0 | n_negativos == 0) {
+    return(NA_real_)
+  }
+  
+  datos_auc[
+    ,
+    ranking_valor := rank(valor_auc, ties.method = "average")
+  ]
+  
+  suma_rankings_positivos <- as.numeric(
+    datos_auc[
+      target_auc == 1,
+      sum(ranking_valor)
+    ]
+  )
+  
+  auc <- (
+    suma_rankings_positivos -
+      n_positivos * (n_positivos + 1) / 2
+  ) / (n_positivos * n_negativos)
+  
+  as.numeric(auc)
+}
+
+dt_verificacion_auc_terminal_ventana <- dt_operaciones_etiquetadas[
+  ,
+  .(
+    n_operaciones = .N,
+    n_fraude = sum(es_fraude == TRUE),
+    n_legitimas = sum(es_fraude == FALSE),
+    
+    mediana_terminal_fraude = median(terminal_risk_score[es_fraude == TRUE]),
+    mediana_terminal_legitima = median(terminal_risk_score[es_fraude == FALSE]),
+    
+    p25_terminal_fraude = quantile(terminal_risk_score[es_fraude == TRUE], 0.25),
+    p75_terminal_fraude = quantile(terminal_risk_score[es_fraude == TRUE], 0.75),
+    p25_terminal_legitima = quantile(terminal_risk_score[es_fraude == FALSE], 0.25),
+    p75_terminal_legitima = quantile(terminal_risk_score[es_fraude == FALSE], 0.75),
+    
+    auc_terminal = calcular_auc_rank_verificacion(
+      valor = terminal_risk_score,
+      target_binario = es_fraude == TRUE
+    )
+  ),
+  by = ventana_temporal
+]
+
+dt_verificacion_auc_terminal_ventana[
+  ,
+  `:=`(
+    auc_terminal_orientado = pmax(auc_terminal, 1 - auc_terminal),
+    diferencia_mediana_terminal = mediana_terminal_fraude - mediana_terminal_legitima
+  )
+]
+
+columnas_redondeo_terminal <- c(
+  "mediana_terminal_fraude",
+  "mediana_terminal_legitima",
+  "p25_terminal_fraude",
+  "p75_terminal_fraude",
+  "p25_terminal_legitima",
+  "p75_terminal_legitima",
+  "auc_terminal",
+  "auc_terminal_orientado",
+  "diferencia_mediana_terminal"
+)
+
+dt_verificacion_auc_terminal_ventana[
+  ,
+  (columnas_redondeo_terminal) := lapply(
+    .SD,
+    round,
+    digits = 4
+  ),
+  .SDcols = columnas_redondeo_terminal
+]
+
+dt_verificacion_auc_terminal_ventana[
+  order(ventana_temporal)
+]
+```
+
+```{r}
+# Verificación mensual de AUC para terminal_risk_score
+
+dt_verificacion_auc_terminal_mes <- dt_operaciones_etiquetadas[
+  ,
+  .(
+    n_operaciones = .N,
+    n_fraude = sum(es_fraude == TRUE),
+    n_legitimas = sum(es_fraude == FALSE),
+    
+    mediana_terminal_fraude = median(terminal_risk_score[es_fraude == TRUE]),
+    mediana_terminal_legitima = median(terminal_risk_score[es_fraude == FALSE]),
+    
+    auc_terminal = calcular_auc_rank_verificacion(
+      valor = terminal_risk_score,
+      target_binario = es_fraude == TRUE
+    )
+  ),
+  by = mes
+]
+
+dt_verificacion_auc_terminal_mes[
+  ,
+  `:=`(
+    auc_terminal_orientado = pmax(auc_terminal, 1 - auc_terminal),
+    diferencia_mediana_terminal = mediana_terminal_fraude - mediana_terminal_legitima
+  )
+]
+
+dt_verificacion_auc_terminal_mes[
+  ,
+  `:=`(
+    mediana_terminal_fraude = round(mediana_terminal_fraude, 4),
+    mediana_terminal_legitima = round(mediana_terminal_legitima, 4),
+    auc_terminal = round(auc_terminal, 4),
+    auc_terminal_orientado = round(auc_terminal_orientado, 4),
+    diferencia_mediana_terminal = round(diferencia_mediana_terminal, 4)
+  )
+]
+
+dt_verificacion_auc_terminal_mes[
+  mes >= 13 & mes <= 18
+][
+  order(mes)
+]
+```
+
+```{r}
+names(dt_asociacion_numericas_target)
+
+```
+
+```{r}
+# Comparación entre AUC del heatmap y AUC recalculado para terminal_risk_score
+
+dt_control_auc_terminal <- merge(
+  dt_asociacion_numericas_target[
+    variable == "terminal_risk_score",
+    .(
+      ventana_temporal,
+      auc_heatmap = auc_univariado,
+      auc_orientado_heatmap = auc_orientado
+    )
+  ],
+  dt_verificacion_auc_terminal_ventana[
+    ,
+    .(
+      ventana_temporal,
+      auc_recalculado = auc_terminal,
+      auc_orientado_recalculado = auc_terminal_orientado
+    )
+  ],
+  by = "ventana_temporal"
+)
+
+dt_control_auc_terminal[
+  ,
+  `:=`(
+    diferencia_auc = round(auc_heatmap - auc_recalculado, 6),
+    diferencia_auc_orientado = round(
+      auc_orientado_heatmap - auc_orientado_recalculado,
+      6
+    )
+  )
+]
+
+dt_control_auc_terminal
+```
+
