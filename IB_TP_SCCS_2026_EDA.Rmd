@@ -2775,3 +2775,1107 @@ dt_control_auc_terminal[
 dt_control_auc_terminal
 ```
 
+# SUBSET FRAUDE ETIQUETADOS 
+
+```{r}
+# Subset de operaciones fraudulentas etiquetadas
+
+dt_operaciones_fraude <- copy(
+  dt_operaciones_etiquetadas[
+    es_fraude == TRUE
+  ]
+)
+
+dt_sanity_operaciones_fraude <- dt_operaciones_fraude[
+  ,
+  .(
+    n_fraudes = .N,
+    mes_minimo = min(mes, na.rm = TRUE),
+    mes_maximo = max(mes, na.rm = TRUE)
+  ),
+  by = ventana_temporal
+][
+  order(ventana_temporal)
+]
+
+dt_sanity_operaciones_fraude
+
+```
+
+## correlaciones numericas
+
+```{r}
+# Correlaciones entre variables numéricas solo sobre operaciones fraudulentas
+
+calcular_correlaciones_numericas_fraude <- function(datos_ventana, metodo_correlacion) {
+  
+  matriz_correlacion <- cor(
+    datos_ventana[, ..variables_numericas_fraude],
+    method = metodo_correlacion,
+    use = "complete.obs"
+  )
+  
+  dt_correlacion <- as.data.table(
+    as.table(matriz_correlacion)
+  )
+  
+  setnames(
+    dt_correlacion,
+    c("variable_1", "variable_2", "correlacion")
+  )
+  
+  dt_correlacion[
+    ,
+    metodo := metodo_correlacion
+  ]
+  
+  dt_correlacion[
+    ,
+    n_fraudes_ventana := nrow(datos_ventana)
+  ]
+  
+  dt_correlacion
+}
+
+dt_correlaciones_numericas_fraude <- rbindlist(
+  lapply(
+    levels(dt_operaciones_fraude$ventana_temporal),
+    function(ventana_actual) {
+      
+      datos_ventana_actual <- dt_operaciones_fraude[
+        ventana_temporal == ventana_actual
+      ]
+      
+      dt_pearson <- calcular_correlaciones_numericas_fraude(
+        datos_ventana = datos_ventana_actual,
+        metodo_correlacion = "pearson"
+      )
+      
+      dt_spearman <- calcular_correlaciones_numericas_fraude(
+        datos_ventana = datos_ventana_actual,
+        metodo_correlacion = "spearman"
+      )
+      
+      dt_resultado <- rbindlist(
+        list(dt_pearson, dt_spearman)
+      )
+      
+      dt_resultado[
+        ,
+        ventana_temporal := ventana_actual
+      ]
+      
+      dt_resultado
+    }
+  )
+)
+
+dt_correlaciones_numericas_fraude[
+  variable_1 != variable_2
+][
+  ,
+  correlacion := round(correlacion, 3)
+][
+  order(metodo, ventana_temporal, variable_1, variable_2)
+]
+```
+
+```{r}
+# Heatmap de Pearson entre variables numéricas solo sobre fraudes
+
+dt_grafico_pearson_fraude <- copy(
+  dt_correlaciones_numericas_fraude[
+    metodo == "pearson"
+  ]
+)
+
+dt_grafico_pearson_fraude[
+  ,
+  variable_1 := factor(
+    variable_1,
+    levels = variables_numericas_fraude
+  )
+]
+
+dt_grafico_pearson_fraude[
+  ,
+  variable_2 := factor(
+    variable_2,
+    levels = rev(variables_numericas_fraude)
+  )
+]
+
+grafico_pearson_fraude <- ggplot(
+  dt_grafico_pearson_fraude,
+  aes(
+    x = variable_1,
+    y = variable_2,
+    fill = correlacion
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 1,
+    width = 0.98,
+    height = 0.98
+  ) +
+  geom_text(
+    aes(label = round(correlacion, 2)),
+    size = 3.8,
+    color = col_negro
+  ) +
+  facet_wrap(
+    ~ ventana_temporal,
+    nrow = 1
+  ) +
+  coord_fixed() +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_gradient2(
+    low = col_celeste,
+    mid = "white",
+    high = col_rojo,
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Pearson"
+  ) +
+  labs(
+    title = "FRAUDES ETIQUETADOS. Correlación lineal entre variables numéricas",
+    subtitle = "Coeficiente Pearson calculado solo sobre operaciones con es_fraude == TRUE.",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(
+      color = "#D0D5DD",
+      fill = NA,
+      linewidth = 0.9
+    ),
+    panel.spacing.x = unit(1.2, "lines"),
+    strip.background = element_rect(
+      fill = "#F2F4F7",
+      color = "#D0D5DD",
+      linewidth = 0.8
+    ),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Guardado del heatmap de Pearson sobre fraudes
+
+archivo_grafico_pearson_fraude <- file.path(
+  directorio_graficos,
+  "eda_pearson_numericas_solo_fraudes_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_pearson_fraude,
+  plot = grafico_pearson_fraude,
+  width = 14,
+  height = 4.8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_pearson_fraude)
+
+grafico_pearson_fraude
+```
+## asociación categóricas
+
+```{r}
+# Asociación entre variables categóricas solo sobre operaciones fraudulentas
+
+pares_categoricas_fraude <- CJ(
+  variable_1 = variables_categoricas_fraude,
+  variable_2 = variables_categoricas_fraude
+)
+
+dt_asociacion_categoricas_fraude <- rbindlist(
+  lapply(
+    levels(dt_operaciones_fraude$ventana_temporal),
+    function(ventana_actual) {
+      
+      datos_ventana_actual <- dt_operaciones_fraude[
+        ventana_temporal == ventana_actual
+      ]
+      
+      dt_resultado_ventana <- copy(pares_categoricas_fraude)
+      
+      dt_resultado_ventana[
+        ,
+        cramers_v := mapply(
+          function(variable_1_actual, variable_2_actual) {
+            calcular_cramers_v(
+              variable_a = datos_ventana_actual[[variable_1_actual]],
+              variable_b = datos_ventana_actual[[variable_2_actual]]
+            )
+          },
+          variable_1,
+          variable_2
+        )
+      ]
+      
+      dt_resultado_ventana[
+        ,
+        n_fraudes_ventana := nrow(datos_ventana_actual)
+      ]
+      
+      dt_resultado_ventana[
+        ,
+        ventana_temporal := ventana_actual
+      ]
+      
+      dt_resultado_ventana
+    }
+  )
+)
+
+dt_asociacion_categoricas_fraude[
+  ,
+  cramers_v := round(cramers_v, 3)
+]
+
+dt_asociacion_categoricas_fraude[
+  order(ventana_temporal, variable_1, variable_2)
+]
+```
+
+```{r}
+# Heatmap de Cramér's V entre categóricas solo sobre fraudes
+
+dt_grafico_cramers_v_fraude <- copy(dt_asociacion_categoricas_fraude)
+
+dt_grafico_cramers_v_fraude[
+  ,
+  variable_1 := factor(
+    variable_1,
+    levels = variables_categoricas_fraude
+  )
+]
+
+dt_grafico_cramers_v_fraude[
+  ,
+  variable_2 := factor(
+    variable_2,
+    levels = rev(variables_categoricas_fraude)
+  )
+]
+
+grafico_cramers_v_fraude <- ggplot(
+  dt_grafico_cramers_v_fraude,
+  aes(
+    x = variable_1,
+    y = variable_2,
+    fill = cramers_v
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 1,
+    width = 0.98,
+    height = 0.98
+  ) +
+  geom_text(
+    aes(label = round(cramers_v, 2)),
+    size = 3.8,
+    color = col_negro
+  ) +
+  facet_wrap(
+    ~ ventana_temporal,
+    nrow = 1
+  ) +
+  coord_fixed() +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_gradient(
+    low = "white",
+    high = col_purpura,
+    limits = c(0, 1),
+    name = "Cramér's V"
+  ) +
+  labs(
+    title = "FRAUDES ETIQUETADOS. Asociación entre variables categóricas",
+    subtitle = "Cramér's V calculado solo sobre operaciones con es_fraude == TRUE.",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(
+      color = "#D0D5DD",
+      fill = NA,
+      linewidth = 0.9
+    ),
+    panel.spacing.x = unit(1.2, "lines"),
+    strip.background = element_rect(
+      fill = "#F2F4F7",
+      color = "#D0D5DD",
+      linewidth = 0.8
+    ),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Guardado del heatmap de Cramér's V sobre fraudes
+
+archivo_grafico_cramers_v_fraude <- file.path(
+  directorio_graficos,
+  "eda_cramers_v_categoricas_solo_fraudes_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_cramers_v_fraude,
+  plot = grafico_cramers_v_fraude,
+  width = 14,
+  height = 4.8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_cramers_v_fraude)
+
+grafico_cramers_v_fraude
+```
+
+## pairplot solo fraude
+
+```{r}
+# Pair plot de variables numéricas solo sobre fraudes
+
+if (requireNamespace("GGally", quietly = TRUE)) {
+  
+  dt_pairplot_fraude <- copy(
+    dt_operaciones_fraude[
+      ,
+      c(
+        "ventana_temporal",
+        variables_numericas_fraude
+      ),
+      with = FALSE
+    ]
+  )
+  
+  dt_pairplot_fraude[
+    ,
+    ventana_temporal := factor(
+      ventana_temporal,
+      levels = orden_ventanas_temporales
+    )
+  ]
+  
+  grafico_pairplot_fraude <- GGally::ggpairs(
+    data = as.data.frame(dt_pairplot_fraude),
+    columns = variables_numericas_fraude,
+    mapping = ggplot2::aes(color = ventana_temporal, alpha = 0.45),
+    upper = list(
+      continuous = GGally::wrap(
+        "cor",
+        size = 3
+      )
+    ),
+    lower = list(
+      continuous = GGally::wrap(
+        "points",
+        size = 0.8
+      )
+    ),
+    diag = list(
+      continuous = GGally::wrap(
+        "densityDiag",
+        alpha = 0.35
+      )
+    )
+  ) +
+    labs(
+      title = "FRAUDES ETIQUETADOS. Pair plot de variables numéricas",
+      subtitle = "Distribución y relación entre features numéricas solo sobre operaciones fraudulentas."
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  
+
+  grafico_pairplot_fraude
+  
+} else {
+  
+  message(
+    "El paquete GGally no está instalado. El pair plot no fue generado."
+  )
+}
+```
+```{r}
+# Guardado del pair plot de fraudes
+
+if (exists("grafico_pairplot_fraude")) {
+  
+  archivo_grafico_pairplot_fraude <- file.path(
+    directorio_graficos,
+    "eda_pairplot_numericas_solo_fraudes.png"
+  )
+  
+  ggsave(
+    filename = archivo_grafico_pairplot_fraude,
+    plot = grafico_pairplot_fraude,
+    width = 11,
+    height = 9,
+    dpi = 300
+  )
+  
+  file.exists(archivo_grafico_pairplot_fraude)
+}
+```
+## pairplot fraudes por ventana
+
+```{r}
+# Pair plots de variables numéricas solo sobre fraudes, separados por ventana
+
+if (requireNamespace("GGally", quietly = TRUE)) {
+  
+  dt_pairplot_fraude_por_ventana <- copy(
+    dt_operaciones_fraude[
+      ,
+      c(
+        "ventana_temporal",
+        variables_numericas_fraude
+      ),
+      with = FALSE
+    ]
+  )
+  
+  dt_pairplot_fraude_por_ventana[
+    ,
+    ventana_temporal := factor(
+      ventana_temporal,
+      levels = orden_ventanas_temporales
+    )
+  ]
+  
+  lista_pairplots_fraude_por_ventana <- lapply(
+    orden_ventanas_temporales,
+    function(ventana_actual) {
+      
+      dt_pairplot_ventana_actual <- dt_pairplot_fraude_por_ventana[
+        ventana_temporal == ventana_actual
+      ]
+      
+      grafico_ventana_actual <- GGally::ggpairs(
+        data = as.data.frame(
+          dt_pairplot_ventana_actual[
+            ,
+            variables_numericas_fraude,
+            with = FALSE
+          ]
+        ),
+        columns = variables_numericas_fraude,
+        upper = list(
+          continuous = GGally::wrap(
+            "cor",
+            size = 6
+          )
+        ),
+        lower = list(
+          continuous = GGally::wrap(
+            "points",
+            size = 0.8,
+            alpha = 0.45,
+            color = col_rojo
+          )
+        ),
+        diag = list(
+          continuous = GGally::wrap(
+            "densityDiag",
+            alpha = 0.35,
+            fill = col_rojo,
+            color = col_rojo
+          )
+        )
+      ) +
+        labs(
+          title = paste0(
+            "FRAUDES ETIQUETADOS. Pair plot de variables numéricas - ",
+            ventana_actual
+          ),
+          subtitle = paste0(
+            "Solo operaciones con es_fraude == TRUE. n = ",
+            nrow(dt_pairplot_ventana_actual)
+          )
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          plot.title = element_text(face = "bold"),
+          legend.position = "bottom"
+        )
+      
+      grafico_ventana_actual
+    }
+  )
+  
+  names(lista_pairplots_fraude_por_ventana) <- orden_ventanas_temporales
+  
+  lista_pairplots_fraude_por_ventana[[1]]
+  
+} else {
+  
+  message(
+    "El paquete GGally no está instalado. Los pair plots no fueron generados."
+  )
+}
+```
+
+```{r}
+# Guardado de pair plots de fraudes por ventana
+
+if (exists("lista_pairplots_fraude_por_ventana")) {
+  
+  dt_guardado_pairplots_fraude_por_ventana <- rbindlist(
+    lapply(
+      orden_ventanas_temporales,
+      function(ventana_actual) {
+        
+        archivo_actual <- file.path(
+          directorio_graficos,
+          paste0(
+            "eda_pairplot_numericas_solo_fraudes_",
+            ventana_actual,
+            ".png"
+          )
+        )
+        
+        ggsave(
+          filename = archivo_actual,
+          plot = lista_pairplots_fraude_por_ventana[[ventana_actual]],
+          width = 10,
+          height = 8,
+          dpi = 300
+        )
+        
+        data.table(
+          ventana_temporal = ventana_actual,
+          archivo = archivo_actual,
+          existe = file.exists(archivo_actual)
+        )
+      }
+    )
+  )
+  
+  dt_guardado_pairplots_fraude_por_ventana
+}
+```
+
+```{r}
+
+# Sanity check de cantidad de fraudes usados en los pair plots
+
+dt_sanity_pairplots_fraude_por_ventana <- dt_pairplot_fraude_por_ventana[
+  ,
+  .(
+    n_fraudes = .N
+  ),
+  by = ventana_temporal
+][
+  order(ventana_temporal)
+]
+
+dt_sanity_pairplots_fraude_por_ventana
+```
+
+## pairplot etiquetadas
+
+```{r}
+# Base muestreada para pair plot de operaciones etiquetadas
+
+set.seed(20260424)
+
+n_maximo_pairplot_por_grupo <- 1200
+
+dt_pairplot_etiquetadas <- dt_operaciones_etiquetadas[
+  ,
+  .SD[
+    sample(
+      .N,
+      size = min(.N, n_maximo_pairplot_por_grupo)
+    )
+  ],
+  by = .(ventana_temporal, clase_fraude)
+]
+
+dt_pairplot_etiquetadas[
+  ,
+  ventana_temporal := factor(
+    ventana_temporal,
+    levels = orden_ventanas_temporales
+  )
+]
+
+dt_pairplot_etiquetadas[
+  ,
+  clase_fraude := factor(
+    clase_fraude,
+    levels = c("legitima", "fraude")
+  )
+]
+
+dt_sanity_pairplot_etiquetadas <- dt_pairplot_etiquetadas[
+  ,
+  .(
+    n_operaciones_muestra = .N
+  ),
+  by = .(ventana_temporal, clase_fraude)
+][
+  order(ventana_temporal, clase_fraude)
+]
+
+dt_sanity_pairplot_etiquetadas
+```
+
+```{r}
+# Pair plot de variables numéricas sobre operaciones etiquetadas
+
+if (requireNamespace("GGally", quietly = TRUE)) {
+  
+  grafico_pairplot_etiquetadas <- GGally::ggpairs(
+    data = as.data.frame(
+      dt_pairplot_etiquetadas[
+        ,
+        c(
+          "clase_fraude",
+          variables_numericas_fraude
+        ),
+        with = FALSE
+      ]
+    ),
+    columns = variables_numericas_fraude,
+    mapping = ggplot2::aes(
+      color = clase_fraude,
+      alpha = 0.35
+    ),
+    upper = list(
+      continuous = GGally::wrap(
+        "cor",
+        size = 3
+      )
+    ),
+    lower = list(
+      continuous = GGally::wrap(
+        "points",
+        size = 0.7
+      )
+    ),
+    diag = list(
+      continuous = GGally::wrap(
+        "densityDiag",
+        alpha = 0.35
+      )
+    )
+  ) +
+    scale_color_manual(
+      values = c(
+        "legitima" = col_celeste,
+        "fraude" = col_rojo
+      )
+    ) +
+    scale_fill_manual(
+      values = c(
+        "legitima" = col_celeste,
+        "fraude" = col_rojo
+      )
+    ) +
+    labs(
+      title = "TRANSACCIONES ETIQUETADAS. Pair plot de variables numéricas",
+      subtitle = "Muestra estratificada por ventana y clase. Comparación entre operaciones legítimas y fraudulentas."
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  grafico_pairplot_etiquetadas
+  
+} else {
+  
+  message(
+    "El paquete GGally no está instalado. El pair plot no fue generado."
+  )
+}
+```
+
+```{r}
+# Guardado del pair plot de operaciones etiquetadas
+
+if (exists("grafico_pairplot_etiquetadas")) {
+  
+  archivo_grafico_pairplot_etiquetadas <- file.path(
+    directorio_graficos,
+    "eda_pairplot_numericas_etiquetadas_fraude_legitima.png"
+  )
+  
+  ggsave(
+    filename = archivo_grafico_pairplot_etiquetadas,
+    plot = grafico_pairplot_etiquetadas,
+    width = 11,
+    height = 9,
+    dpi = 300
+  )
+  
+  file.exists(archivo_grafico_pairplot_etiquetadas)
+}
+```
+## pairplot etiquetadas x ventana
+
+```{r}
+
+# Pair plots por ventana sobre operaciones etiquetadas
+
+if (requireNamespace("GGally", quietly = TRUE)) {
+  
+  lista_pairplots_etiquetadas_por_ventana <- lapply(
+    orden_ventanas_temporales,
+    function(ventana_actual) {
+      
+      dt_pairplot_ventana_actual <- dt_pairplot_etiquetadas[
+        ventana_temporal == ventana_actual
+      ]
+      
+      grafico_ventana_actual <- GGally::ggpairs(
+        data = as.data.frame(
+          dt_pairplot_ventana_actual[
+            ,
+            c(
+              "clase_fraude",
+              variables_numericas_fraude
+            ),
+            with = FALSE
+          ]
+        ),
+        columns = variables_numericas_fraude,
+        mapping = ggplot2::aes(
+          color = clase_fraude,
+          alpha = 0.35
+        ),
+        upper = list(
+          continuous = GGally::wrap(
+            "cor",
+            size = 6
+          )
+        ),
+        lower = list(
+          continuous = GGally::wrap(
+            "points",
+            size = 0.7
+          )
+        ),
+        diag = list(
+          continuous = GGally::wrap(
+            "densityDiag",
+            alpha = 0.35
+          )
+        )
+      ) +
+        scale_color_manual(
+          values = c(
+            "legitima" = col_celeste,
+            "fraude" = col_rojo
+          )
+        ) +
+        scale_fill_manual(
+          values = c(
+            "legitima" = col_celeste,
+            "fraude" = col_rojo
+          )
+        ) +
+        labs(
+          title = paste0(
+            "TRANSACCIONES ETIQUETADAS. Pair plot numérico - ",
+            ventana_actual
+          ),
+          subtitle = "Muestra estratificada. Comparación entre operaciones legítimas y fraudulentas."
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          plot.title = element_text(face = "bold"),
+          legend.position = "bottom"
+        )
+      
+      grafico_ventana_actual
+    }
+  )
+  
+  names(lista_pairplots_etiquetadas_por_ventana) <- orden_ventanas_temporales
+  
+  lista_pairplots_etiquetadas_por_ventana[[1]]
+  
+} else {
+  
+  message(
+    "El paquete GGally no está instalado. Los pair plots por ventana no fueron generados."
+  )
+}
+
+```
+```{r}
+# Guardado de pair plots por ventana
+
+if (exists("lista_pairplots_etiquetadas_por_ventana")) {
+  
+  dt_guardado_pairplots_ventana <- rbindlist(
+    lapply(
+      orden_ventanas_temporales,
+      function(ventana_actual) {
+        
+        archivo_actual <- file.path(
+          directorio_graficos,
+          paste0(
+            "eda_pairplot_numericas_etiquetadas_",
+            ventana_actual,
+            ".png"
+          )
+        )
+        
+        ggsave(
+          filename = archivo_actual,
+          plot = lista_pairplots_etiquetadas_por_ventana[[ventana_actual]],
+          width = 11,
+          height = 9,
+          dpi = 300
+        )
+        
+        data.table(
+          ventana_temporal = ventana_actual,
+          archivo = archivo_actual,
+          existe = file.exists(archivo_actual)
+        )
+      }
+    )
+  )
+  
+  dt_guardado_pairplots_ventana
+}
+```
+
+## combinaciones de categóricas FRAUDE
+
+```{r}
+# Combinaciones categóricas dentro de operaciones fraudulentas
+
+if (!exists("dt_operaciones_fraude")) {
+  dt_operaciones_fraude <- copy(
+    dt_operaciones_etiquetadas[
+      es_fraude == TRUE
+    ]
+  )
+}
+
+
+
+dt_combinaciones_categoricas_fraude <- dt_operaciones_fraude[
+  ,
+  .(
+    n_fraudes = .N
+  ),
+  by = .(
+    ventana_temporal,
+    canal,
+    hora_bin,
+    dispositivo
+  )
+]
+
+dt_combinaciones_categoricas_fraude[
+  ,
+  pct_fraudes_ventana := 100 * n_fraudes / sum(n_fraudes),
+  by = ventana_temporal
+]
+
+dt_combinaciones_categoricas_fraude[
+  ,
+  combinacion_operativa := paste(
+    canal,
+    hora_bin,
+    dispositivo,
+    sep = " | "
+  )
+]
+
+dt_combinaciones_categoricas_fraude[
+  ,
+  pct_fraudes_ventana := round(pct_fraudes_ventana, 2)
+]
+
+dt_combinaciones_categoricas_fraude[
+  order(ventana_temporal, -pct_fraudes_ventana)
+]
+```
+
+```{r}
+# Heatmap de combinaciones categóricas dentro de fraudes por ventana
+
+dt_operaciones_fraude <- copy(
+  dt_operaciones_etiquetadas[
+    es_fraude == TRUE
+  ]
+)
+
+dt_combinaciones_categoricas_fraude <- dt_operaciones_fraude[
+  ,
+  .(
+    n_fraudes = .N
+  ),
+  by = .(
+    ventana_temporal,
+    canal,
+    hora_bin,
+    dispositivo
+  )
+]
+
+dt_combinaciones_categoricas_fraude[
+  ,
+  pct_fraudes_ventana := 100 * n_fraudes / sum(n_fraudes),
+  by = ventana_temporal
+]
+
+dt_combinaciones_categoricas_fraude[
+  ,
+  combinacion_operativa := paste(
+    canal,
+    hora_bin,
+    dispositivo,
+    sep = " | "
+  )
+]
+
+dt_combinaciones_categoricas_fraude[
+  ,
+  pct_fraudes_ventana := round(pct_fraudes_ventana, 2)
+]
+
+n_combinaciones_grafico <- 20
+
+dt_top_combinaciones_fraude <- dt_combinaciones_categoricas_fraude[
+  ,
+  .(
+    n_fraudes_total = sum(n_fraudes)
+  ),
+  by = combinacion_operativa
+][
+  order(-n_fraudes_total)
+]
+
+n_combinaciones_disponibles <- min(
+  n_combinaciones_grafico,
+  nrow(dt_top_combinaciones_fraude)
+)
+
+dt_top_combinaciones_fraude <- dt_top_combinaciones_fraude[
+  1:n_combinaciones_disponibles
+]
+
+dt_grafico_combinaciones_fraude <- dt_combinaciones_categoricas_fraude[
+  combinacion_operativa %in% dt_top_combinaciones_fraude$combinacion_operativa
+]
+
+dt_grafico_combinaciones_fraude[
+  ,
+  combinacion_operativa := factor(
+    combinacion_operativa,
+    levels = dt_top_combinaciones_fraude[
+      order(n_fraudes_total),
+      combinacion_operativa
+    ]
+  )
+]
+
+
+
+# dt_grafico_combinaciones_fraude[
+#   ,
+#   etiqueta_celda := paste0(
+#     round(pct_fraudes_ventana, 1),
+#     "%\n",
+#     "n=",
+#     n_fraudes
+#   )
+# ]
+
+
+dt_grafico_combinaciones_fraude[
+  ,
+  etiqueta_celda := paste0(
+    round(pct_fraudes_ventana, 1),
+    "% ",
+    "(n=",
+    n_fraudes,
+    ")"
+  )
+]
+grafico_combinaciones_categoricas_fraude <- ggplot(
+  dt_grafico_combinaciones_fraude,
+  aes(
+    x = ventana_temporal,
+    y = combinacion_operativa,
+    fill = pct_fraudes_ventana
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_text(
+    aes(label = etiqueta_celda),
+    size = 3,
+    color = col_negro,
+    lineheight = 0.9
+  ) +
+  scale_fill_gradient(
+    low = "white",
+    high = col_rojo,
+    name = "% fraudes\nde ventana"
+  ) +
+  labs(
+    title = "Combinaciones operativas más frecuentes dentro de los fraudes",
+    subtitle = "Distribución de canal, hora_bin y dispositivo entre operaciones con es_fraude == TRUE.",
+    x = "Ventana temporal",
+    y = "Combinación operativa"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    axis.text.y = element_text(size = 9),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+grafico_combinaciones_categoricas_fraude
+```
+
+```{r}
+# Guardado del heatmap de combinaciones categóricas dentro de fraudes
+
+archivo_grafico_combinaciones_categoricas_fraude <- file.path(
+  directorio_graficos,
+  "eda_combinaciones_categoricas_solo_fraudes_por_ventana.png"
+)
+
+ggsave(
+  filename = archivo_grafico_combinaciones_categoricas_fraude,
+  plot = grafico_combinaciones_categoricas_fraude,
+  width = 13,
+  height = 8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_combinaciones_categoricas_fraude)
+```
+
