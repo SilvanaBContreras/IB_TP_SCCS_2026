@@ -606,81 +606,231 @@ rm(mediana_f1_t0_m3, hpdi_95_inf_f1_t0_m3, hpdi_95_sup_f1_t0_m3, f1_calculado_t0
 # 4 Posteriors F1 y simulacion Monte Carlo para todos los modelos en T0
 
 ```{r}
-# Paso 4
+
+# ============================================================
+# Paso 4 | Posteriors F1 y simulación Monte Carlo
+# para todos los modelos en T0
+# ============================================================
 
 analisis_modelo_T0 <- function(nombre_modelo, metricas_T0, S = 50000) {
   
-  # Extraemos conteos del JSON
   m_T0 <- metricas_T0[[nombre_modelo]]$T0_validacion
+  
   TP <- m_T0$TP
   FP <- m_T0$FP
   FN <- m_T0$FN
   
-  # Definimos los parámetros de las posteriores Beta-Binomial (prior uniforme)
+  f1_puntual <- 2 * TP / (2 * TP + FP + FN)
+  
   alpha_precision    <- 1 + TP
   beta_precision     <- 1 + FP
   alpha_sensibilidad <- 1 + TP
   beta_sensibilidad  <- 1 + FN
   
-  # Hacemos las simulaciones son el muestreo Monte Carlo de precisión y sensibilidad
-  muestras_p <- rbeta(S, alpha_precision,    beta_precision)
+  muestras_p <- rbeta(S, alpha_precision, beta_precision)
   muestras_r <- rbeta(S, alpha_sensibilidad, beta_sensibilidad)
   
-  # # Propagamos los valores para obtener todos los F1
-  # muestras_f1 <- 2 * muestras_p * muestras_r / (muestras_p + muestras_r)
-  # 
-  # # Calculo hpdi y armo la tabla resumen
-  # hpdi_f1 <- hpdi(muestras_f1, prob = 0.95)
-  # 
-  # data.table(
-  #   modelo     = nombre_modelo,
-  #   mediana_F1 = median(muestras_f1),
-  #   HPDI_95    = sprintf("[%.4f, %.4f]", hpdi_f1[1], hpdi_f1[2]),
-  #   conteos    = sprintf("TP=%d, FP=%d, FN=%d", TP, FP, FN)
-  # )
-  # Propagamos los valores para obtener todos los F1
   muestras_f1 <- 2 * muestras_p * muestras_r / (muestras_p + muestras_r)
   
-  # Calculo hpdi y armo la tabla resumen
   hpdi_f1 <- hpdi(muestras_f1, prob = 0.95)
   
   data.table(
-    modelo     = nombre_modelo,
+    modelo = nombre_modelo,
+    TP = TP,
+    FP = FP,
+    FN = FN,
+    f1_puntual = f1_puntual,
     mediana_F1 = median(muestras_f1),
-    HPDI_95    = sprintf("[%.4f, %.4f]", hpdi_f1[1], hpdi_f1[2]),
-    conteos    = sprintf("TP=%d, FP=%d, FN=%d", TP, FP, FN)
+    hpdi_95_inf = hpdi_f1[1],
+    hpdi_95_sup = hpdi_f1[2],
+    HPDI_95 = sprintf("[%.4f, %.4f]", hpdi_f1[1], hpdi_f1[2]),
+    conteos = sprintf("TP=%d · FP=%d · FN=%d", TP, FP, FN),
+    cubre_f1_puntual = hpdi_f1[1] <= f1_puntual & f1_puntual <= hpdi_f1[2]
   )
 }
 
-# Aplicar a los cinco modelos
 set.seed(20260424)
 
 dt_reporte_paso4 <- rbindlist(
-  lapply(nombres_modelos, analisis_modelo_T0, metricas_T0 = metricas_T0)
-)
-
-dt_reporte_paso4
-```
-
-```{r}
-
-data.table(
-  chequeo = c(
-    "Todos los modelos fueron procesados",
-    "Todas las F1 están entre 0 y 1",
-    "Todos los HPDI cubren el F1 puntual",
-    "M3 tiene la mayor mediana posterior de F1"
-  ),
-  resultado = c(
-    nrow(dt_reporte_paso4) == length(nombres_modelos),
-    all(dt_reporte_paso4$mediana_F1 >= 0 & dt_reporte_paso4$mediana_F1 <= 1),
-    all(dt_reporte_paso4$cubre_f1_puntual),
-    dt_reporte_paso4[which.max(mediana_F1), modelo] == "M3_gbm_completo"
+  lapply(
+    nombres_modelos,
+    analisis_modelo_T0,
+    metricas_T0 = metricas_T0
   )
 )
 
-rm(dt_reporte_paso4)
+dt_reporte_paso4[]
 
+```
+
+## grafico slide 1
+
+```{r}
+# ============================================================
+# Slide 1 | Reconstruccion T0 en formato limpio
+# Barras = mediana posterior F1
+# Lineas = HPDI 95%
+# Punto negro = F1 puntual reconstruido
+# Etiqueta numerica alineada a la derecha del punto/HPDI
+# ============================================================
+
+dt_grafico_slide_1 <- copy(dt_reporte_paso4)
+
+# ------------------------------------------------------------
+# Compatibilidad de nombres de columnas
+# ------------------------------------------------------------
+
+if ("mediana_f1" %in% names(dt_grafico_slide_1) &&
+    !"mediana_F1" %in% names(dt_grafico_slide_1)) {
+  setnames(dt_grafico_slide_1, "mediana_f1", "mediana_F1")
+}
+
+# Si HPDI viene como texto, lo parseamos
+if (!all(c("hpdi_95_inf", "hpdi_95_sup") %in% names(dt_grafico_slide_1))) {
+  
+  dt_grafico_slide_1[
+    ,
+    c("hpdi_95_inf", "hpdi_95_sup") := tstrsplit(
+      gsub("\\[|\\]", "", HPDI_95),
+      ",\\s*",
+      type.convert = TRUE
+    )
+  ]
+}
+
+# ------------------------------------------------------------
+# Orden y etiquetas
+# ------------------------------------------------------------
+
+dt_grafico_slide_1[
+  ,
+  modelo := factor(
+    modelo,
+    levels = dt_grafico_slide_1[order(mediana_F1), modelo]
+  )
+]
+
+dt_grafico_slide_1[
+  ,
+  etiqueta_valor := sprintf("%.3f", mediana_F1)
+]
+
+# Posicion explicita de la etiqueta a la derecha del punto / HPDI
+dt_grafico_slide_1[
+  ,
+  x_etiqueta := pmax(f1_puntual, hpdi_95_sup) + 0.012
+]
+
+# Para evitar que la etiqueta quede muy pegada al borde derecho
+dt_grafico_slide_1[
+  x_etiqueta > 0.91,
+  x_etiqueta := 0.91
+]
+
+# ------------------------------------------------------------
+# Grafico
+# ------------------------------------------------------------
+
+grafico_slide_1_reconstruccion_t0 <- ggplot(
+  dt_grafico_slide_1,
+  aes(
+    x = mediana_F1,
+    y = modelo,
+    fill = modelo
+  )
+) +
+  geom_col(
+    width = 0.58,
+    alpha = 0.88
+  ) +
+  geom_errorbarh(
+    aes(
+      xmin = hpdi_95_inf,
+      xmax = hpdi_95_sup
+    ),
+    height = 0.20,
+    linewidth = 0.95,
+    color = "black"
+  ) +
+  geom_point(
+    aes(x = f1_puntual),
+    size = 3.0,
+    color = "black"
+  ) +
+  geom_text(
+    aes(
+      x = x_etiqueta,
+      label = etiqueta_valor
+    ),
+    hjust = 0,
+    size = 5.0,
+    color = "black",
+    fontface = "bold"
+  ) +
+  scale_fill_manual(
+    values = paleta_modelos,
+    guide = "none"
+  ) +
+  scale_x_continuous(
+    limits = c(0, 0.95),
+    breaks = seq(0, 0.9, 0.1),
+    labels = scales::number_format(accuracy = 0.1),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  labs(
+    title = "Sistema auditado: M3 dominante en validacion T0",
+    subtitle = "Mediana posterior de F1 con HPDI 95%; punto negro = F1 puntual",
+    x = "F1 en validacion T0",
+    y = NULL,
+    caption = "Reconstruccion bayesiana sobre precision y sensibilidad; propagacion Monte Carlo a F1."
+  ) +
+  coord_cartesian(
+    clip = "off"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", size = 22),
+    plot.subtitle = element_text(size = 14, color = "grey30"),
+    plot.caption = element_text(size = 11, color = "grey35"),
+    
+    axis.title.x = element_text(size = 18),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 15, face = "bold"),
+    
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    plot.margin = margin(12, 40, 12, 12)
+  )
+
+# ------------------------------------------------------------
+# Guardado
+# ------------------------------------------------------------
+
+archivo_grafico_slide_1_reconstruccion_t0 <- file.path(
+  directorio_graficos,
+  "slide_1_reconstruccion_t0_barras_hpdi.png"
+)
+
+ggsave(
+  filename = archivo_grafico_slide_1_reconstruccion_t0,
+  plot = grafico_slide_1_reconstruccion_t0,
+  width = 11.5,
+  height = 6.2,
+  dpi = 300
+)
+
+data.table(
+  salida = "PNG",
+  archivo = archivo_grafico_slide_1_reconstruccion_t0,
+  existe = file.exists(archivo_grafico_slide_1_reconstruccion_t0),
+  ruta_absoluta = normalizePath(
+    archivo_grafico_slide_1_reconstruccion_t0,
+    mustWork = FALSE
+  )
+)
+
+grafico_slide_1_reconstruccion_t0
 ```
 
 # 5 Trayectoria F1/mes/modelo/18M
@@ -1139,7 +1289,7 @@ dt_chequeo_m3_secuencial <- dt_chequeo_f1_secuencial[
 
 dt_chequeo_m3_secuencial
 
-rm(dt_conteos_mensuales_ordenado, dt_chequeo_f1_secuencial, dt_resumen_chequeo_f1_secuencial, archivo_grafico_f1_secuencial, grafico_f1_secuencial, S_secuencial, dt_chequeo_m3_secuencial)
+#rm(dt_conteos_mensuales_ordenado, dt_chequeo_f1_secuencial, dt_resumen_chequeo_f1_secuencial, archivo_grafico_f1_secuencial, grafico_f1_secuencial, S_secuencial, dt_chequeo_m3_secuencial)
 ```
 
 
@@ -1881,6 +2031,347 @@ dt_sanity_guardado_tabla_f1
 
 ```
 
+## tabla version reducida para ppt
+```{r}
+# ============================================================
+# Slide 3 | Tabla compacta modelo x ventana
+# Construccion + guardado en una sola celda
+# ============================================================
+
+decimales_f1_tabla_slide <- 3
+
+dt_tabla_slide_3 <- copy(dt_tabla_final_f1_modelo_ventana)
+
+# Etiquetas legibles de modelos
+dt_tabla_slide_3[
+  ,
+  modelo_label := fifelse(
+    modelo == "M1_logistica", "M1 - Regresion logistica",
+    fifelse(
+      modelo == "M2_random_forest", "M2 - Random forest",
+      fifelse(
+        modelo == "M3_gbm_completo", "M3 - GBM completo",
+        fifelse(
+          modelo == "M4_gbm_moderado", "M4 - GBM moderado",
+          fifelse(
+            modelo == "M5_naive_bayes", "M5 - Naive Bayes",
+            modelo
+          )
+        )
+      )
+    )
+  )
+]
+
+# Etiquetas legibles de ventanas
+dt_tabla_slide_3[
+  ,
+  ventana_label := fifelse(
+    as.character(ventana) == "T0_validacion_agregada",
+    "T0",
+    fifelse(
+      as.character(ventana) == "T1_entero_meses_13_18",
+      "T1 entero",
+      fifelse(
+        as.character(ventana) == "ventana_operativa_meses_16_18",
+        "Ventana operativa",
+        as.character(ventana)
+      )
+    )
+  )
+]
+
+dt_tabla_slide_3[
+  ,
+  ventana_label := factor(
+    ventana_label,
+    levels = c("T0", "T1 entero", "Ventana operativa")
+  )
+]
+
+dt_tabla_slide_3[
+  ,
+  modelo := factor(
+    modelo,
+    levels = nombres_modelos
+  )
+]
+
+dt_tabla_slide_3[
+  ,
+  es_mejor_ventana := mediana_f1 == max(mediana_f1),
+  by = ventana_label
+]
+
+# HPDI para slide
+if (all(c("hpdi_95_inf", "hpdi_95_sup") %in% names(dt_tabla_slide_3))) {
+  dt_tabla_slide_3[
+    ,
+    HPDI_95_slide := sprintf("[%.3f, %.3f]", hpdi_95_inf, hpdi_95_sup)
+  ]
+} else {
+  dt_tabla_slide_3[
+    ,
+    HPDI_95_slide := HPDI_95
+  ]
+}
+
+# Funciones auxiliares
+escapar_html <- function(x) {
+  x <- as.character(x)
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  x <- gsub(">", "&gt;", x, fixed = TRUE)
+  x
+}
+
+formatear_f1_slide <- function(x, decimales = 3) {
+  sprintf(paste0("%.", decimales, "f"), x)
+}
+
+# Inicio HTML
+html_tabla_slide_3 <- '
+<style>
+.tabla-slide-3 {
+  width: 100%;
+  max-width: 1100px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: Arial, sans-serif;
+  font-size: 15px;
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+.tabla-slide-3 caption {
+  caption-side: top;
+  text-align: left;
+  font-size: 24px;
+  font-weight: 700;
+  padding-bottom: 4px;
+  color: #222222;
+}
+.tabla-slide-3 .subtitulo {
+  font-size: 15px;
+  font-weight: 400;
+  color: #555555;
+}
+.tabla-slide-3 th {
+  background-color: #F2F4F7;
+  color: #222222;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2px solid #C9D1D9;
+  padding: 12px 10px;
+}
+.tabla-slide-3 td {
+  border-bottom: 1px solid #E5E7EB;
+  padding: 12px 10px;
+  text-align: center;
+  vertical-align: middle;
+}
+.tabla-slide-3 td.modelo {
+  text-align: left;
+  font-weight: 700;
+  color: white;
+  border-bottom: 1px solid white;
+}
+.tabla-slide-3 td.celda-f1 {
+  background-color: #FAFAFA;
+}
+.tabla-slide-3 td.celda-f1.t1 {
+  background-color: #FFF8E6;
+}
+.tabla-slide-3 td.celda-f1.operativa {
+  background-color: #EEF8EE;
+}
+.tabla-slide-3 td.mejor {
+  outline: 3px solid #222222;
+  outline-offset: -3px;
+  background-color: #EAF4FF;
+}
+.tabla-slide-3 .valor-f1 {
+  display: block;
+  font-size: 23px;
+  font-weight: 800;
+  color: #111111;
+  line-height: 1.05;
+}
+.tabla-slide-3 .hpdi {
+  display: block;
+  font-size: 12px;
+  color: #555555;
+  margin-top: 4px;
+}
+.tabla-slide-3 .nota {
+  font-size: 12px;
+  color: #555555;
+  text-align: left;
+  padding-top: 10px;
+  border-bottom: 0;
+}
+.tabla-slide-3 .leyenda {
+  font-size: 12px;
+  color: #333333;
+  font-weight: 600;
+}
+</style>
+
+<table class="tabla-slide-3">
+<colgroup>
+  <col style="width: 28%;">
+  <col style="width: 24%;">
+  <col style="width: 24%;">
+  <col style="width: 24%;">
+</colgroup>
+<caption>
+Dónde decidir: T0, T1 entero o ventana operativa<br>
+<span class="subtitulo">Mediana posterior de F1 e intervalo HPDI 95% por modelo y ventana.</span>
+</caption>
+<thead>
+<tr>
+  <th>Modelo</th>
+  <th>T0</th>
+  <th>T1 entero</th>
+  <th>Ventana operativa</th>
+</tr>
+</thead>
+<tbody>
+'
+
+# Filas HTML
+for (modelo_i in nombres_modelos) {
+  
+  dt_modelo_i <- dt_tabla_slide_3[
+    as.character(modelo) == modelo_i
+  ][order(ventana_label)]
+  
+  color_modelo_i <- paleta_modelos[[modelo_i]]
+  modelo_label_i <- dt_modelo_i$modelo_label[1]
+  
+  html_tabla_slide_3 <- paste0(
+    html_tabla_slide_3,
+    '<tr>',
+    '<td class="modelo" style="background-color:', color_modelo_i, ';">',
+    escapar_html(modelo_label_i),
+    '</td>'
+  )
+  
+  for (ventana_i in c("T0", "T1 entero", "Ventana operativa")) {
+    
+    fila_i <- dt_modelo_i[
+      as.character(ventana_label) == ventana_i
+    ]
+    
+    clase_ventana_i <- fifelse(
+      ventana_i == "T0",
+      "t0",
+      fifelse(ventana_i == "T1 entero", "t1", "operativa")
+    )
+    
+    clase_mejor_i <- fifelse(
+      fila_i$es_mejor_ventana,
+      " mejor",
+      ""
+    )
+    
+    html_tabla_slide_3 <- paste0(
+      html_tabla_slide_3,
+      '<td class="celda-f1 ', clase_ventana_i, clase_mejor_i, '">',
+      '<span class="valor-f1">',
+      formatear_f1_slide(fila_i$mediana_f1, decimales_f1_tabla_slide),
+      '</span>',
+      '<span class="hpdi">HPDI ',
+      escapar_html(fila_i$HPDI_95_slide),
+      '</span>',
+      '</td>'
+    )
+  }
+  
+  html_tabla_slide_3 <- paste0(html_tabla_slide_3, '</tr>')
+}
+
+# Cierre HTML
+html_tabla_slide_3 <- paste0(
+  html_tabla_slide_3,
+  '
+<tr>
+<td colspan="4" class="nota">
+<span class="leyenda">Recuadro negro:</span> mayor mediana posterior de F1 dentro de cada ventana. 
+T0 corresponde a validacion agregada; T1 entero a meses 13 a 18; ventana operativa a meses 16 a 18.
+</td>
+</tr>
+</tbody>
+</table>'
+)
+
+# Guardado HTML y PNG
+archivo_tabla_slide_3_html <- file.path(
+  directorio_graficos,
+  "slide_3_tabla_compacta_modelo_ventana.html"
+)
+
+archivo_tabla_slide_3_png <- file.path(
+  directorio_graficos,
+  "slide_3_tabla_compacta_modelo_ventana.png"
+)
+
+html_tabla_slide_3_reporte <- paste0(
+  '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body {
+  margin: 24px;
+  background-color: white;
+}
+.contenedor-tabla-slide-3 {
+  width: 1100px;
+  max-width: 1100px;
+}
+</style>
+</head>
+<body>
+<div class="contenedor-tabla-slide-3">',
+  html_tabla_slide_3,
+  '</div>
+</body>
+</html>'
+)
+
+writeLines(
+  text = html_tabla_slide_3_reporte,
+  con = archivo_tabla_slide_3_html,
+  useBytes = TRUE
+)
+
+if (requireNamespace("webshot2", quietly = TRUE)) {
+  webshot2::webshot(
+    url = normalizePath(archivo_tabla_slide_3_html),
+    file = archivo_tabla_slide_3_png,
+    vwidth = 1150,
+    vheight = 650,
+    zoom = 2
+  )
+} else {
+  message("No se genero PNG porque falta webshot2.")
+}
+
+data.table(
+  salida = c("HTML", "PNG"),
+  archivo = c(archivo_tabla_slide_3_html, archivo_tabla_slide_3_png),
+  existe = c(
+    file.exists(archivo_tabla_slide_3_html),
+    file.exists(archivo_tabla_slide_3_png)
+  ),
+  ruta_absoluta = c(
+    normalizePath(archivo_tabla_slide_3_html, mustWork = FALSE),
+    normalizePath(archivo_tabla_slide_3_png, mustWork = FALSE)
+  )
+)
+```
+
+
 
 # 6.2 Densidades posteriores f1 ventana operativa
 
@@ -1972,15 +2463,35 @@ grafico_densidades_f1_ventana_operativa <- ggplot(
     fill = "Modelo"
   ) +
   guides(fill = "none") +
-  theme_bw() +
-  theme(
-    legend.position = "bottom",
-    legend.box = "horizontal",
-    legend.title = element_text(size = 11),
-    legend.text = element_text(size = 10),
-    panel.grid.minor = element_blank(),
-    plot.margin = margin(10, 10, 20, 10)
-  )
+  # theme_bw() +
+  # theme(
+  #   legend.position = "bottom",
+  #   legend.box = "horizontal",
+  #   legend.title = element_text(size = 11),
+  #   legend.text = element_text(size = 10),
+  #   panel.grid.minor = element_blank(),
+  #   plot.margin = margin(10, 10, 20, 10)
+  # )
+
+    theme(
+      legend.position = "bottom",
+      legend.box = "horizontal",
+      
+      plot.title = element_text(size = 22, face = "bold"),
+      plot.subtitle = element_text(size = 16),
+      
+      axis.title.x = element_text(size = 16),
+      axis.title.y = element_text(size = 16),
+      axis.text.x = element_text(size = 14),
+      axis.text.y = element_text(size = 14),
+      
+      legend.title = element_text(size = 14),
+      legend.text = element_text(size = 13),
+      
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(10, 10, 20, 10)
+    )
+
 
 grafico_densidades_f1_ventana_operativa
 
@@ -2003,7 +2514,7 @@ ggsave(
 
 grafico_densidades_f1_ventana_operativa
 
-rm(grafico_densidades_f1_ventana_operativa, archivo_grafico_densidades_f1_ventana_operativa, S_ventana_operativa)
+# rm(grafico_densidades_f1_ventana_operativa, archivo_grafico_densidades_f1_ventana_operativa, S_ventana_operativa)
 
 ```
 
@@ -2191,6 +2702,252 @@ grafico_matriz_dominancia_f1
 rm(archivo_grafico_matriz_dominancia_f1, grafico_matriz_dominancia_f1, matriz_dominancia_f1, modelo_i, modelo_j, orden_modelos_dominancia, dt_metricas_temporales_1_18, dt_muestras_f1_dominancia_ancho)
 
 ```
+## matriz versión para ppt
+
+```{r}
+install.packages("ggnewscale")
+library(ggnewscale)
+```
+
+
+```{r}
+# ============================================================
+# Slide 4 | Matriz de dominancia bayesiana
+# Ventana operativa 16-18
+# Version con bandas de color por modelo y gradiente neutro
+# ============================================================
+
+# Orden operativo sugerido: ranking en ventana operativa
+orden_modelos_dominancia_slide <- c(
+  "M4_gbm_moderado",
+  "M2_random_forest",
+  "M1_logistica",
+  "M5_naive_bayes",
+  "M3_gbm_completo"
+)
+
+# Etiquetas legibles
+etiquetas_modelos_dominancia <- c(
+  M1_logistica = "M1\nLogistica",
+  M2_random_forest = "M2\nRandom forest",
+  M3_gbm_completo = "M3\nGBM completo",
+  M4_gbm_moderado = "M4\nGBM moderado",
+  M5_naive_bayes = "M5\nNaive Bayes"
+)
+
+# ------------------------------------------------------------
+# Preparacion de datos
+# ------------------------------------------------------------
+
+dt_matriz_dominancia_f1_slide <- copy(dt_matriz_dominancia_f1)
+
+dt_matriz_dominancia_f1_slide[
+  ,
+  modelo_fila := factor(
+    modelo_fila,
+    levels = rev(orden_modelos_dominancia_slide)
+  )
+]
+
+dt_matriz_dominancia_f1_slide[
+  ,
+  modelo_columna := factor(
+    modelo_columna,
+    levels = orden_modelos_dominancia_slide
+  )
+]
+
+dt_matriz_dominancia_f1_slide[
+  ,
+  x_id := as.integer(modelo_columna)
+]
+
+dt_matriz_dominancia_f1_slide[
+  ,
+  y_id := as.integer(modelo_fila)
+]
+
+dt_matriz_dominancia_f1_slide[
+  ,
+  etiqueta_probabilidad := fifelse(
+    as.character(modelo_fila) == as.character(modelo_columna),
+    "",
+    paste0(prob_dominancia_pct, "%")
+  )
+]
+
+dt_matriz_dominancia_f1_slide[
+  ,
+  color_texto := fifelse(
+    prob_dominancia >= 0.65,
+    "white",
+    "black"
+  )
+]
+
+# Sacamos diagonal para que no distraiga
+dt_matriz_dominancia_f1_slide_plot <- dt_matriz_dominancia_f1_slide[
+  as.character(modelo_fila) != as.character(modelo_columna)
+]
+
+# ------------------------------------------------------------
+# Bandas de color por modelo
+# ------------------------------------------------------------
+
+dt_banda_filas <- data.table(
+  modelo = rev(orden_modelos_dominancia_slide),
+  y_id = seq_along(rev(orden_modelos_dominancia_slide)),
+  x_id = 0.35
+)
+
+dt_banda_filas[
+  ,
+  color_modelo := paleta_modelos[modelo]
+]
+
+dt_banda_columnas <- data.table(
+  modelo = orden_modelos_dominancia_slide,
+  x_id = seq_along(orden_modelos_dominancia_slide),
+  y_id = 5.65
+)
+
+dt_banda_columnas[
+  ,
+  color_modelo := paleta_modelos[modelo]
+]
+
+# ------------------------------------------------------------
+# Grafico
+# ------------------------------------------------------------
+
+grafico_matriz_dominancia_f1_slide <- ggplot() +
+  
+  # Bandas laterales de modelo, filas
+  geom_tile(
+    data = dt_banda_filas,
+    aes(
+      x = x_id,
+      y = y_id,
+      fill = color_modelo
+    ),
+    width = 0.16,
+    height = 0.92,
+    inherit.aes = FALSE
+  ) +
+  
+  # Bandas superiores de modelo, columnas
+  geom_tile(
+    data = dt_banda_columnas,
+    aes(
+      x = x_id,
+      y = y_id,
+      fill = color_modelo
+    ),
+    width = 0.92,
+    height = 0.16,
+    inherit.aes = FALSE
+  ) +
+  
+  scale_fill_identity() +
+  
+  # Heatmap principal con gradiente neutro
+  ggnewscale::new_scale_fill() +
+  
+  geom_tile(
+    data = dt_matriz_dominancia_f1_slide_plot,
+    aes(
+      x = x_id,
+      y = y_id,
+      fill = prob_dominancia
+    ),
+    color = "white",
+    linewidth = 0.9
+  ) +
+  
+  geom_text(
+    data = dt_matriz_dominancia_f1_slide_plot,
+    aes(
+      x = x_id,
+      y = y_id,
+      label = etiqueta_probabilidad,
+      color = color_texto
+    ),
+    size = 5.4,
+    fontface = "bold"
+  ) +
+  
+  scale_color_identity() +
+  
+  scale_fill_gradient(
+    low = "#F7F7F7",
+    high = "#3A3A3A",
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    breaks = c(0, 0.25, 0.5, 0.75, 1)
+  ) +
+  
+  scale_x_continuous(
+    breaks = seq_along(orden_modelos_dominancia_slide),
+    labels = etiquetas_modelos_dominancia[orden_modelos_dominancia_slide],
+    position = "top",
+    limits = c(0.15, 5.55),
+    expand = c(0, 0)
+  ) +
+  
+  scale_y_continuous(
+    breaks = seq_along(rev(orden_modelos_dominancia_slide)),
+    labels = etiquetas_modelos_dominancia[rev(orden_modelos_dominancia_slide)],
+    limits = c(0.45, 5.85),
+    expand = c(0, 0)
+  ) +
+  
+  labs(
+    title = "Qué modelo domina: evidencia posterior y matriz 5x5",
+    subtitle = "Cada celda indica P(F1 modelo fila > F1 modelo columna) en ventana operativa 16-18",
+    x = NULL,
+    y = NULL,
+    fill = "Dominancia"
+  ) +
+  
+  coord_fixed(
+    clip = "off"
+  ) +
+  
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 22),
+    plot.subtitle = element_text(size = 14, color = "grey30"),
+    axis.text.x = element_text(size = 12, face = "bold", vjust = 0),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10),
+    plot.margin = margin(14, 18, 14, 18)
+  )
+
+# ------------------------------------------------------------
+# Guardado del gráfico para slide 4
+# ------------------------------------------------------------
+
+archivo_grafico_matriz_dominancia_f1_slide <- file.path(
+  directorio_graficos,
+  "slide_4_matriz_dominancia_bayesiana_ventana_operativa_16_18.png"
+)
+
+ggsave(
+  filename = archivo_grafico_matriz_dominancia_f1_slide,
+  plot = grafico_matriz_dominancia_f1_slide,
+  width = 11.5,
+  height = 8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_matriz_dominancia_f1_slide)
+
+grafico_matriz_dominancia_f1_slide
+```
+
 
 # 6 extra KL M4 versus M2 en 16-18
 ```{r}
@@ -2260,6 +3017,9 @@ dt_kl_m4_m2
 
 rm(muestras_f1_16_18_m4, muestras_f1_16_18_m2, cortes_f1_kl_m4_m2, kl_m4_vs_m2, kl_m2_vs_m4, dt_muestras_f1_dominancia, dt_muestras_f1_ventana_operativa, dt_conteos_mensuales)
 ```
+
+
+
 
 # 7 Análisis operaciones
 Analisis del dataset de operaciones para chequear balance de clases entre conjunto de entrenamiento y validacion y las etiquetas.

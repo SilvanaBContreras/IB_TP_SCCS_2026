@@ -1097,6 +1097,171 @@ file.exists(archivo_grafico_auc_numericas)
 
 grafico_auc_numericas
 ```
+## ppt version de eda_auc_numericas_target_por_ventana.png
+
+```{r}
+
+
+# ============================================================
+# Slide / backup PPT | AUC orientado por variable numerica
+# Solo ventanas disponibles para la decision de julio 2025
+# Construccion + guardado
+# ============================================================
+
+dt_grafico_auc_numericas <- copy(dt_asociacion_numericas_target)
+
+# ------------------------------------------------------------
+# Etiquetas legibles de ventanas
+# ------------------------------------------------------------
+
+dt_grafico_auc_numericas[
+  ,
+  ventana_temporal_chr := as.character(ventana_temporal)
+]
+
+# Solo ventanas disponibles al momento de decidir julio 2025
+dt_grafico_auc_numericas <- dt_grafico_auc_numericas[
+  ventana_temporal_chr %in% c(
+    "T0_1_12",
+    "T1_13_15",
+    "T1_16_18"
+  )
+]
+
+dt_grafico_auc_numericas[
+  ,
+  ventana_label := fcase(
+    ventana_temporal_chr == "T0_1_12", "T0",
+    ventana_temporal_chr == "T1_13_15", "T1 transición",
+    ventana_temporal_chr == "T1_16_18", "Ventana operativa",
+    default = ventana_temporal_chr
+  )
+]
+
+dt_grafico_auc_numericas[
+  ,
+  ventana_label := factor(
+    ventana_label,
+    levels = c(
+      "T0",
+      "T1 transición",
+      "Ventana operativa"
+    )
+  )
+]
+
+# ------------------------------------------------------------
+# Etiquetas legibles de variables
+# ------------------------------------------------------------
+
+dt_grafico_auc_numericas[
+  ,
+  variable_label := fcase(
+    variable == "monto_log", "monto_log",
+    variable == "terminal_risk_score", "terminal_risk_score",
+    variable == "secuencia_24h", "secuencia_24h",
+    default = as.character(variable)
+  )
+]
+
+dt_grafico_auc_numericas[
+  ,
+  variable_label := factor(
+    variable_label,
+    levels = c(
+      "monto_log",
+      "terminal_risk_score",
+      "secuencia_24h"
+    )
+  )
+]
+
+# ------------------------------------------------------------
+# Grafico
+# ------------------------------------------------------------
+
+grafico_auc_numericas_slide <- ggplot(
+  dt_grafico_auc_numericas,
+  aes(
+    x = ventana_label,
+    y = variable_label,
+    fill = auc_orientado
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.9
+  ) +
+  geom_text(
+    aes(
+      label = sprintf("%.3f", auc_orientado)
+    ),
+    size = 5,
+    fontface = "bold",
+    color = "grey10"
+  ) +
+  scale_fill_gradient(
+    low = "white",
+    high = "#BD164F",
+    limits = c(0.5, 1),
+    breaks = seq(0.5, 1, by = 0.1),
+    name = "AUC\norientado"
+  ) +
+  labs(
+    title = "Fuerza de separación de las variables numéricas",
+    subtitle = "AUC orientado por variable y ventana hasta julio 2025",
+    x = NULL,
+    y = NULL,
+    caption = "Transacciones etiquetadas. Valores cercanos a 0.5 indican baja separación."
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", size = 22),
+    plot.subtitle = element_text(size = 14, color = "grey30"),
+    plot.caption = element_text(size = 11, color = "grey35"),
+    
+    axis.text.x = element_text(size = 13, face = "bold"),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    
+    legend.position = "right",
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    
+    panel.grid = element_blank(),
+    plot.margin = margin(12, 14, 12, 12)
+  )
+
+# ------------------------------------------------------------
+# Guardado
+# ------------------------------------------------------------
+
+archivo_grafico_auc_numericas_slide <- file.path(
+  directorio_graficos,
+  "slide_auc_orientado_variables_numericas_hasta_julio_2025.png"
+)
+
+ggsave(
+  filename = archivo_grafico_auc_numericas_slide,
+  plot = grafico_auc_numericas_slide,
+  width = 10.5,
+  height = 4.8,
+  dpi = 300
+)
+
+data.table(
+  salida = "PNG",
+  archivo = archivo_grafico_auc_numericas_slide,
+  existe = file.exists(archivo_grafico_auc_numericas_slide),
+  ruta_absoluta = normalizePath(
+    archivo_grafico_auc_numericas_slide,
+    mustWork = FALSE
+  )
+)
+
+grafico_auc_numericas_slide
+```
+
+
 
 # asociación entre numéricas
 
@@ -1964,6 +2129,267 @@ file.exists(archivo_grafico_mixto_terminal)
 
 grafico_mixto_terminal
 ```
+
+
+## ppt eda_mixto_terminal_risk_score_por_categorias_y_ventana.png
+para ppt
+
+```{r}
+
+# ============================================================
+# Slide 5 | Variable comprometida
+# Heatmap mixto: terminal_risk_score por categorias y ventana
+# Solo ventanas disponibles para la decision de julio 2025
+# Construccion + guardado
+# ============================================================
+
+dt_grafico_mixto_terminal <- copy(
+  dt_mixto_comparacion_clase[
+    variable_numerica == "terminal_risk_score"
+  ]
+)
+
+# ------------------------------------------------------------
+# Etiquetas legibles de ventanas
+# ------------------------------------------------------------
+
+dt_grafico_mixto_terminal[
+  ,
+  ventana_temporal_chr := as.character(ventana_temporal)
+]
+
+# Solo ventanas disponibles al momento de decidir julio 2025
+dt_grafico_mixto_terminal <- dt_grafico_mixto_terminal[
+  ventana_temporal_chr %in% c(
+    "T0_1_12",
+    "T1_13_15",
+    "T1_16_18"
+  )
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  ventana_label := fcase(
+    ventana_temporal_chr == "T0_1_12", "T0",
+    ventana_temporal_chr == "T1_13_15", "T1 transicion",
+    ventana_temporal_chr == "T1_16_18", "Ventana operativa",
+    default = ventana_temporal_chr
+  )
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  ventana_label := factor(
+    ventana_label,
+    levels = c(
+      "T0",
+      "T1 transicion",
+      "Ventana operativa"
+    )
+  )
+]
+
+# ------------------------------------------------------------
+# Etiquetas legibles de categorias
+# ------------------------------------------------------------
+
+dt_grafico_mixto_terminal[
+  ,
+  variable_categorica_chr := as.character(variable_categorica)
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  categoria_chr := as.character(categoria)
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  variable_categorica_label := fcase(
+    variable_categorica_chr == "canal", "Canal",
+    variable_categorica_chr == "hora_bin", "Franja horaria",
+    variable_categorica_chr == "dispositivo", "Dispositivo",
+    default = variable_categorica_chr
+  )
+]
+
+orden_variables_categoricas_slide <- c(
+  "Canal",
+  "Franja horaria",
+  "Dispositivo"
+)
+
+dt_grafico_mixto_terminal[
+  ,
+  variable_categorica_label := factor(
+    variable_categorica_label,
+    levels = orden_variables_categoricas_slide
+  )
+]
+
+dt_grafico_mixto_terminal[
+  ,
+  etiqueta_categoria := paste0(
+    variable_categorica_label,
+    " · ",
+    categoria_chr
+  )
+]
+
+dt_orden_categorias_terminal <- unique(
+  dt_grafico_mixto_terminal[
+    order(variable_categorica_label, categoria_chr),
+    .(
+      variable_categorica_label,
+      categoria_chr,
+      etiqueta_categoria
+    )
+  ]
+)
+
+dt_grafico_mixto_terminal[
+  ,
+  etiqueta_categoria := factor(
+    etiqueta_categoria,
+    levels = dt_orden_categorias_terminal$etiqueta_categoria
+  )
+]
+
+# ------------------------------------------------------------
+# Separadores entre grupos categoricos
+# ------------------------------------------------------------
+
+dt_separadores_mixto_terminal <- dt_orden_categorias_terminal[
+  ,
+  .(
+    n_categorias = .N
+  ),
+  by = variable_categorica_label
+][
+  order(variable_categorica_label)
+]
+
+dt_separadores_mixto_terminal[
+  ,
+  y_fin := cumsum(n_categorias)
+]
+
+dt_separadores_mixto_terminal[
+  ,
+  y_intercept := y_fin + 0.5
+]
+
+dt_separadores_mixto_terminal <- dt_separadores_mixto_terminal[
+  y_intercept < max(y_intercept)
+]
+
+# ------------------------------------------------------------
+# Limite simetrico para escala divergente
+# ------------------------------------------------------------
+
+limite_diferencia_terminal <- max(
+  abs(dt_grafico_mixto_terminal$diferencia_mediana_fraude_legitima),
+  na.rm = TRUE
+)
+
+# ------------------------------------------------------------
+# Grafico
+# ------------------------------------------------------------
+
+grafico_mixto_terminal_slide <- ggplot(
+  dt_grafico_mixto_terminal,
+  aes(
+    x = ventana_label,
+    y = etiqueta_categoria,
+    fill = diferencia_mediana_fraude_legitima
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.9
+  ) +
+  geom_hline(
+    data = dt_separadores_mixto_terminal,
+    aes(yintercept = y_intercept),
+    inherit.aes = FALSE,
+    color = "grey25",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    aes(
+      label = sprintf("%.2f", diferencia_mediana_fraude_legitima)
+    ),
+    size = 4.1,
+    fontface = "bold",
+    color = "grey10"
+  ) +
+  scale_fill_gradient2(
+    low = "#1567A3",
+    mid = "white",
+    high = "#BD164F",
+    midpoint = 0,
+    limits = c(
+      -limite_diferencia_terminal,
+      limite_diferencia_terminal
+    ),
+    name = "Dif. mediana\nfraude - legitima"
+  ) +
+  labs(
+    title = "Cambio de régimen",
+    subtitle = "Separación de terminal_risk_score entre fraude y operaciones legítimas",
+    x = NULL,
+    y = NULL,
+    caption = "Valores positivos: mayor mediana de terminal_risk_score en fraudes. Operaciones etiquetadas."
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", size = 22),
+    plot.subtitle = element_text(size = 14, color = "grey30"),
+    plot.caption = element_text(size = 11, color = "grey35"),
+    
+    axis.text.x = element_text(size = 13, face = "bold"),
+    axis.text.y = element_text(size = 11.5, face = "bold"),
+    
+    legend.position = "right",
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    
+    panel.grid = element_blank(),
+    plot.margin = margin(12, 14, 12, 12)
+  )
+
+# ------------------------------------------------------------
+# Guardado
+# ------------------------------------------------------------
+
+archivo_grafico_mixto_terminal_slide <- file.path(
+  directorio_graficos,
+  "slide_5_variable_comprometida_terminal_risk_score.png"
+)
+
+ggsave(
+  filename = archivo_grafico_mixto_terminal_slide,
+  plot = grafico_mixto_terminal_slide,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+data.table(
+  salida = "PNG",
+  archivo = archivo_grafico_mixto_terminal_slide,
+  existe = file.exists(archivo_grafico_mixto_terminal_slide),
+  ruta_absoluta = normalizePath(
+    archivo_grafico_mixto_terminal_slide,
+    mustWork = FALSE
+  )
+)
+
+grafico_mixto_terminal_slide
+
+```
+
+
 ```{r}
 # Heatmap mixto para secuencia_24h por categorías
 
