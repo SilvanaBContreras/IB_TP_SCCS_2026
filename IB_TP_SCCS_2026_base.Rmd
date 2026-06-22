@@ -245,6 +245,441 @@ paleta_modelos <- setNames(
 
 paleta_modelos
 ```
+## 0 modelos y features
+
+```{r}
+# ============================================================
+# Tabla de modelos y variables incluidas
+# Sin titulo, subtitulo ni nota
+# Incluye visualizacion + guardado HTML y PNG
+# ============================================================
+
+dt_tabla_modelos_variables <- data.table(
+  modelo = c("M1", "M2", "M3", "M4", "M5"),
+  modelo_id = c(
+    "M1_logistica",
+    "M2_random_forest",
+    "M3_gbm_completo",
+    "M4_gbm_moderado",
+    "M5_naive_bayes"
+  ),
+  nombre = c(
+    "Regresion logistica lineal",
+    "Random forest",
+    "Gradient boosting completo",
+    "Gradient boosting moderado",
+    "Naive Bayes"
+  ),
+  variables = c(
+    "monto_log; canal; dispositivo",
+    "monto_log; canal; dispositivo; hora_bin; secuencia_24h",
+    "monto_log; canal; dispositivo; hora_bin; secuencia_24h; terminal_risk_score",
+    "monto_log; canal; dispositivo; hora_bin; secuencia_24h",
+    "monto_log; secuencia_24h"
+  )
+)
+
+dt_tabla_modelos_variables[
+  ,
+  color_modelo := paleta_modelos[modelo_id]
+]
+
+dt_tabla_modelos_variables[
+  ,
+  modelo_label := paste0(modelo, " - ", nombre)
+]
+
+escapar_html <- function(x) {
+  x <- as.character(x)
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  x <- gsub(">", "&gt;", x, fixed = TRUE)
+  x
+}
+
+html_tabla_modelos_variables <- '
+<style>
+.contenedor-tabla-modelos {
+  width: 1500px;
+  max-width: 1500px;
+  font-family: Arial, sans-serif;
+  padding: 0;
+  background-color: #FFFFFF;
+}
+
+.tabla-modelos {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: Arial, sans-serif;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.tabla-modelos col.modelo {
+  width: 31%;
+}
+
+.tabla-modelos col.variables {
+  width: 69%;
+}
+
+.tabla-modelos th {
+  background-color: #F1F3F6;
+  color: #111111;
+  font-weight: 800;
+  text-align: left;
+  padding: 18px 18px;
+  border-bottom: 2px solid #CBD5E1;
+  font-size: 28px;
+}
+
+.tabla-modelos td {
+  padding: 24px 20px;
+  border-bottom: 1px solid #E5E7EB;
+  vertical-align: middle;
+  color: #111111;
+}
+
+.tabla-modelos td.modelo {
+  color: white;
+  font-weight: 800;
+  font-size: 27px;
+  line-height: 1.15;
+}
+
+.tabla-modelos td.variables {
+  background-color: #FFFFFF;
+  line-height: 1.28;
+  font-size: 27px;
+  font-weight: 500;
+}
+</style>
+
+<div class="contenedor-tabla-modelos">
+  <table class="tabla-modelos">
+    <colgroup>
+      <col class="modelo">
+      <col class="variables">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Modelo</th>
+        <th>Variables que incluye</th>
+      </tr>
+    </thead>
+    <tbody>
+'
+
+for (i in seq_len(nrow(dt_tabla_modelos_variables))) {
+  
+  html_tabla_modelos_variables <- paste0(
+    html_tabla_modelos_variables,
+    '<tr>',
+    '<td class="modelo" style="background-color:',
+    dt_tabla_modelos_variables$color_modelo[i],
+    ';">',
+    escapar_html(dt_tabla_modelos_variables$modelo_label[i]),
+    '</td>',
+    '<td class="variables">',
+    escapar_html(dt_tabla_modelos_variables$variables[i]),
+    '</td>',
+    '</tr>'
+  )
+}
+
+html_tabla_modelos_variables <- paste0(
+  html_tabla_modelos_variables,
+  '
+    </tbody>
+  </table>
+</div>
+'
+)
+
+# ------------------------------------------------------------
+# Visualizacion renderizada en notebook / RStudio
+# ------------------------------------------------------------
+
+htmltools::browsable(
+  htmltools::HTML(html_tabla_modelos_variables)
+)
+
+# ------------------------------------------------------------
+# Guardado HTML y PNG
+# ------------------------------------------------------------
+
+archivo_tabla_modelos_variables_html <- file.path(
+  directorio_graficos,
+  "tabla_modelos_variables.html"
+)
+
+archivo_tabla_modelos_variables_png <- file.path(
+  directorio_graficos,
+  "tabla_modelos_variables.png"
+)
+
+writeLines(
+  html_tabla_modelos_variables,
+  archivo_tabla_modelos_variables_html,
+  useBytes = TRUE
+)
+
+if (!requireNamespace("webshot2", quietly = TRUE)) {
+  install.packages("webshot2")
+}
+
+webshot2::webshot(
+  url = paste0("file:///", normalizePath(archivo_tabla_modelos_variables_html, winslash = "/")),
+  file = archivo_tabla_modelos_variables_png,
+  vwidth = 1560,
+  vheight = 520,
+  zoom = 2
+)
+
+dt_sanity_guardado_tabla_modelos_variables <- data.table(
+  salida = c("HTML", "PNG"),
+  archivo = c(
+    archivo_tabla_modelos_variables_html,
+    archivo_tabla_modelos_variables_png
+  ),
+  existe = c(
+    file.exists(archivo_tabla_modelos_variables_html),
+    file.exists(archivo_tabla_modelos_variables_png)
+  )
+)
+
+dt_sanity_guardado_tabla_modelos_variables
+```
+
+
+```{r}
+# ============================================================
+# Tabla de modelos y variables incluidas
+# Estilo consistente con tablas del informe
+# Incluye visualizacion + guardado HTML y PNG
+# ============================================================
+
+dt_tabla_modelos_variables <- data.table(
+  modelo = c("M1", "M2", "M3", "M4", "M5"),
+  modelo_id = c(
+    "M1_logistica",
+    "M2_random_forest",
+    "M3_gbm_completo",
+    "M4_gbm_moderado",
+    "M5_naive_bayes"
+  ),
+  nombre = c(
+    "Regresion logistica lineal",
+    "Random forest",
+    "Gradient boosting completo",
+    "Gradient boosting moderado",
+    "Naive Bayes"
+  ),
+  variables = c(
+    "monto_log; canal; dispositivo",
+    "monto_log; canal; dispositivo; hora_bin; secuencia_24h",
+    "monto_log; canal; dispositivo; hora_bin; secuencia_24h; terminal_risk_score",
+    "monto_log; canal; dispositivo; hora_bin; secuencia_24h",
+    "monto_log; secuencia_24h"
+  )
+)
+
+dt_tabla_modelos_variables[
+  ,
+  color_modelo := paleta_modelos[modelo_id]
+]
+
+dt_tabla_modelos_variables[
+  ,
+  modelo_label := paste0(modelo, " - ", nombre)
+]
+
+escapar_html <- function(x) {
+  x <- as.character(x)
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  x <- gsub(">", "&gt;", x, fixed = TRUE)
+  x
+}
+
+html_tabla_modelos_variables <- '
+<style>
+.contenedor-tabla-modelos {
+  width: 1500px;
+  max-width: 1500px;
+  font-family: Arial, sans-serif;
+  padding: 28px 32px 24px 32px;
+  background-color: #FFFFFF;
+}
+
+.titulo-tabla-modelos {
+  font-size: 30px;
+  font-weight: 800;
+  color: #111111;
+  margin-bottom: 8px;
+}
+
+.subtitulo-tabla-modelos {
+  font-size: 18px;
+  color: #4B5563;
+  margin-bottom: 14px;
+}
+
+.tabla-modelos {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: Arial, sans-serif;
+  font-size: 22px;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.tabla-modelos col.modelo {
+  width: 27%;
+}
+
+.tabla-modelos col.variables {
+  width: 73%;
+}
+
+.tabla-modelos th {
+  background-color: #F1F3F6;
+  color: #111111;
+  font-weight: 800;
+  text-align: left;
+  padding: 15px 16px;
+  border-bottom: 2px solid #CBD5E1;
+}
+
+.tabla-modelos td {
+  padding: 17px 16px;
+  border-bottom: 1px solid #E5E7EB;
+  vertical-align: middle;
+  color: #111111;
+}
+
+.tabla-modelos td.modelo {
+  color: white;
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.tabla-modelos td.variables {
+  background-color: #FFFFFF;
+  line-height: 1.35;
+  font-size: 16px;
+}
+
+.nota-tabla-modelos {
+  margin-top: 14px;
+  font-size: 20px;
+  color: #4B5563;
+}
+</style>
+
+<div class="contenedor-tabla-modelos">
+  <div class="titulo-tabla-modelos">Modelos auditados y variables incluidas</div>
+  <div class="subtitulo-tabla-modelos">Resumen de la informacion disponible para cada especificacion.</div>
+
+  <table class="tabla-modelos">
+    <colgroup>
+      <col class="modelo">
+      <col class="variables">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Modelo</th>
+        <th>Variables que incluye</th>
+      </tr>
+    </thead>
+    <tbody>
+'
+
+for (i in seq_len(nrow(dt_tabla_modelos_variables))) {
+  
+  html_tabla_modelos_variables <- paste0(
+    html_tabla_modelos_variables,
+    '<tr>',
+    '<td class="modelo" style="background-color:',
+    dt_tabla_modelos_variables$color_modelo[i],
+    ';">',
+    escapar_html(dt_tabla_modelos_variables$modelo_label[i]),
+    '</td>',
+    '<td class="variables">',
+    escapar_html(dt_tabla_modelos_variables$variables[i]),
+    '</td>',
+    '</tr>'
+  )
+}
+
+html_tabla_modelos_variables <- paste0(
+  html_tabla_modelos_variables,
+  '
+    </tbody>
+  </table>
+
+  <div class="nota-tabla-modelos">
+    Nota: los colores identifican los modelos y se mantienen constantes en todo el informe.
+  </div>
+</div>
+'
+)
+
+# ------------------------------------------------------------
+# Visualizacion renderizada en notebook / RStudio
+# ------------------------------------------------------------
+
+htmltools::browsable(
+  htmltools::HTML(html_tabla_modelos_variables)
+)
+
+# ------------------------------------------------------------
+# Guardado HTML y PNG
+# ------------------------------------------------------------
+
+archivo_tabla_modelos_variables_html <- file.path(
+  directorio_graficos,
+  "tabla_modelos_variables.html"
+)
+
+archivo_tabla_modelos_variables_png <- file.path(
+  directorio_graficos,
+  "tabla_modelos_variables.png"
+)
+
+writeLines(
+  html_tabla_modelos_variables,
+  archivo_tabla_modelos_variables_html,
+  useBytes = TRUE
+)
+
+if (!requireNamespace("webshot2", quietly = TRUE)) {
+  install.packages("webshot2")
+}
+
+webshot2::webshot(
+  url = paste0("file:///", normalizePath(archivo_tabla_modelos_variables_html, winslash = "/")),
+  file = archivo_tabla_modelos_variables_png,
+  vwidth = 1560,
+  vheight = 560,
+  zoom = 2
+)
+
+dt_sanity_guardado_tabla_modelos_variables <- data.table(
+  salida = c("HTML", "PNG"),
+  archivo = c(
+    archivo_tabla_modelos_variables_html,
+    archivo_tabla_modelos_variables_png
+  ),
+  existe = c(
+    file.exists(archivo_tabla_modelos_variables_html),
+    file.exists(archivo_tabla_modelos_variables_png)
+  )
+)
+
+dt_sanity_guardado_tabla_modelos_variables
+
+```
 
 ## 1 Reconstrucción de F1 en T0_m3
 
@@ -1784,7 +2219,7 @@ html_tabla_final <- '
   border-collapse: collapse;
   table-layout: fixed;
   font-family: Arial, sans-serif;
-  font-size: 13px;
+  font-size: 18px;
   margin-top: 12px;
   margin-bottom: 18px;
 }
@@ -1792,13 +2227,13 @@ html_tabla_final <- '
 .tabla-f1 caption {
   caption-side: top;
   text-align: left;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
   padding-bottom: 4px;
   color: #222222;
 }
 .tabla-f1 .subtitulo {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 400;
   color: #555555;
 }
@@ -1822,7 +2257,7 @@ html_tabla_final <- '
 .tabla-f1 tr.modelo-grupo td {
   color: white;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 18px;
   text-align: left;
   padding: 9px 10px;
   border-bottom: 0;
@@ -1839,13 +2274,13 @@ html_tabla_final <- '
 .tabla-f1 td.mediana {
   font-weight: 700;
 }
-.tabla-f1 .nota {
-  font-size: 12px;
-  color: #555555;
-  text-align: left;
-  padding-top: 10px;
-  border-bottom: 0;
-}
+# .tabla-f1 .nota {
+#   font-size: 12px;
+#   color: #555555;
+#   text-align: left;
+#   padding-top: 10px;
+#   border-bottom: 0;
+# }
 </style>
 
 <table class="tabla-f1">
@@ -3015,9 +3450,105 @@ dt_kl_m4_m2 <- data.table(
 
 dt_kl_m4_m2
 
-rm(muestras_f1_16_18_m4, muestras_f1_16_18_m2, cortes_f1_kl_m4_m2, kl_m4_vs_m2, kl_m2_vs_m4, dt_muestras_f1_dominancia, dt_muestras_f1_ventana_operativa, dt_conteos_mensuales)
+
 ```
 
+
+
+```{r}
+# ============================================================
+# Grafico KL M4 versus M2 | Ventana operativa 16-18
+# ============================================================
+
+dt_kl_m4_m2_slide <- copy(dt_kl_m4_m2)
+
+dt_kl_m4_m2_slide[
+  ,
+  comparacion := factor(
+    comparacion,
+    levels = c(
+      "KL M4 || M2",
+      "KL M2 || M4",
+      "KL simetrizada M4-M2"
+    )
+  )
+]
+
+dt_kl_m4_m2_slide[
+  ,
+  color_barra := fifelse(
+    comparacion == "KL M4 || M2",
+    paleta_modelos[["M4_gbm_moderado"]],
+    fifelse(
+      comparacion == "KL M2 || M4",
+      paleta_modelos[["M2_random_forest"]],
+      "#3A3A3A"
+    )
+  )
+]
+
+dt_kl_m4_m2_slide[
+  ,
+  etiqueta_kl := sprintf("%.3f", valor_kl)
+]
+
+grafico_kl_m4_m2_slide <- ggplot(
+  dt_kl_m4_m2_slide,
+  aes(
+    x = valor_kl,
+    y = comparacion
+  )
+) +
+  geom_col(
+    aes(fill = color_barra),
+    width = 0.55
+  ) +
+  geom_text(
+    aes(label = etiqueta_kl),
+    hjust = -0.15,
+    size = 5,
+    fontface = "bold",
+    color = "#222222"
+  ) +
+  scale_fill_identity() +
+  scale_x_continuous(
+    limits = c(0, max(dt_kl_m4_m2_slide$valor_kl) * 1.18),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  labs(
+    title = "Divergencia posterior entre M4 y M2",
+    subtitle = "Ventana operativa 16-18. KL dirigida y KL simetrizada sobre muestras posteriores de F1",
+    x = "Divergencia KL",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 21),
+    plot.subtitle = element_text(size = 13, color = "grey30"),
+    axis.text.y = element_text(size = 13, face = "bold"),
+    axis.text.x = element_text(size = 11),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(14, 22, 14, 14)
+  )
+
+archivo_grafico_kl_m4_m2_slide <- file.path(
+  directorio_graficos,
+  "slide_4_extra_kl_m4_m2_ventana_operativa_16_18.png"
+)
+
+ggsave(
+  filename = archivo_grafico_kl_m4_m2_slide,
+  plot = grafico_kl_m4_m2_slide,
+  width = 9,
+  height = 4.8,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_kl_m4_m2_slide)
+
+grafico_kl_m4_m2_slide
+```
 
 
 
