@@ -1099,27 +1099,21 @@ grafico_auc_numericas
 ```
 ## ppt version de eda_auc_numericas_target_por_ventana.png
 
+
+
 ```{r}
-
-
 # ============================================================
-# Slide / backup PPT | AUC orientado por variable numerica
-# Solo ventanas disponibles para la decision de julio 2025
-# Construccion + guardado
+# Slide / backup PPT | AUC orientado por variable numérica
+# Estilo tabla de decisión: color por ventana + intensidad por magnitud
 # ============================================================
 
 dt_grafico_auc_numericas <- copy(dt_asociacion_numericas_target)
-
-# ------------------------------------------------------------
-# Etiquetas legibles de ventanas
-# ------------------------------------------------------------
 
 dt_grafico_auc_numericas[
   ,
   ventana_temporal_chr := as.character(ventana_temporal)
 ]
 
-# Solo ventanas disponibles al momento de decidir julio 2025
 dt_grafico_auc_numericas <- dt_grafico_auc_numericas[
   ventana_temporal_chr %in% c(
     "T0_1_12",
@@ -1150,10 +1144,6 @@ dt_grafico_auc_numericas[
   )
 ]
 
-# ------------------------------------------------------------
-# Etiquetas legibles de variables
-# ------------------------------------------------------------
-
 dt_grafico_auc_numericas[
   ,
   variable_label := fcase(
@@ -1169,44 +1159,63 @@ dt_grafico_auc_numericas[
   variable_label := factor(
     variable_label,
     levels = c(
-      "monto_log",
+      "secuencia_24h",
       "terminal_risk_score",
-      "secuencia_24h"
+      "monto_log"
     )
   )
 ]
 
 # ------------------------------------------------------------
-# Grafico
+# Color por ventana, intensidad por AUC
+# 0.5 queda casi blanco; 1.0 queda con el color pleno de la ventana
 # ------------------------------------------------------------
+
+paleta_auc_por_ventana <- list(
+  "T0" = scales::col_numeric(
+    palette = c("#FFFFFF", "#DDE7F3"),
+    domain = c(0.5, 1)
+  ),
+  "T1 transición" = scales::col_numeric(
+    palette = c("#FFFFFF", "#F2D99A"),
+    domain = c(0.5, 1)
+  ),
+  "Ventana operativa" = scales::col_numeric(
+    palette = c("#FFFFFF", "#BFE7C8"),
+    domain = c(0.5, 1)
+  )
+)
+
+dt_grafico_auc_numericas[
+  ,
+  color_celda := mapply(
+    function(ventana_i, auc_i) {
+      paleta_auc_por_ventana[[as.character(ventana_i)]](auc_i)
+    },
+    ventana_label,
+    auc_orientado
+  )
+]
 
 grafico_auc_numericas_slide <- ggplot(
   dt_grafico_auc_numericas,
   aes(
     x = ventana_label,
-    y = variable_label,
-    fill = auc_orientado
+    y = variable_label
   )
 ) +
   geom_tile(
-    color = "white",
-    linewidth = 0.9
+    aes(fill = color_celda),
+    color = "#E5E7EB",
+    linewidth = 1.2
   ) +
   geom_text(
-    aes(
-      label = sprintf("%.3f", auc_orientado)
-    ),
-    size = 5,
+    aes(label = sprintf("%.3f", auc_orientado)),
+    size = 10.5,
     fontface = "bold",
-    color = "grey10"
+    color = "#111111"
   ) +
-  scale_fill_gradient(
-    low = "white",
-    high = "#BD164F",
-    limits = c(0.5, 1),
-    breaks = seq(0.5, 1, by = 0.1),
-    name = "AUC\norientado"
-  ) +
+  scale_fill_identity() +
   labs(
     title = "Fuerza de separación de las variables numéricas",
     subtitle = "AUC orientado por variable y ventana hasta julio 2025",
@@ -1214,26 +1223,48 @@ grafico_auc_numericas_slide <- ggplot(
     y = NULL,
     caption = "Transacciones etiquetadas. Valores cercanos a 0.5 indican baja separación."
   ) +
-  theme_minimal(base_size = 15) +
+  coord_fixed(ratio = 0.42, clip = "off") +
+  theme_minimal(base_size = 20) +
   theme(
-    plot.title = element_text(face = "bold", size = 22),
-    plot.subtitle = element_text(size = 14, color = "grey30"),
-    plot.caption = element_text(size = 11, color = "grey35"),
-    
-    axis.text.x = element_text(size = 13, face = "bold"),
-    axis.text.y = element_text(size = 12, face = "bold"),
-    
-    legend.position = "right",
-    legend.title = element_text(size = 11, face = "bold"),
-    legend.text = element_text(size = 10),
-    
-    panel.grid = element_blank(),
-    plot.margin = margin(12, 14, 12, 12)
-  )
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
 
-# ------------------------------------------------------------
-# Guardado
-# ------------------------------------------------------------
+    plot.title = element_text(
+      face = "bold",
+      size = 34,
+      color = "#000000",
+      hjust = 0
+    ),
+    plot.subtitle = element_text(
+      size = 22,
+      color = "#4D4D4D",
+      hjust = 0,
+      margin = margin(b = 18)
+    ),
+    plot.caption = element_text(
+      size = 15,
+      color = "#5A5A5A",
+      hjust = 0.5,
+      margin = margin(t = 14)
+    ),
+
+    axis.text.x = element_text(
+      size = 22,
+      face = "bold",
+      color = "#4D4D4D",
+      margin = margin(t = 12)
+    ),
+    axis.text.y = element_text(
+      size = 21,
+      face = "bold",
+      color = "#4D4D4D",
+      margin = margin(r = 14)
+    ),
+
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(24, 28, 20, 24)
+  )
 
 archivo_grafico_auc_numericas_slide <- file.path(
   directorio_graficos,
@@ -1243,9 +1274,10 @@ archivo_grafico_auc_numericas_slide <- file.path(
 ggsave(
   filename = archivo_grafico_auc_numericas_slide,
   plot = grafico_auc_numericas_slide,
-  width = 10.5,
-  height = 4.8,
-  dpi = 300
+  width = 14.5,
+  height = 7.2,
+  dpi = 300,
+  bg = "white"
 )
 
 data.table(
@@ -2134,13 +2166,12 @@ grafico_mixto_terminal
 ## ppt eda_mixto_terminal_risk_score_por_categorias_y_ventana.png
 para ppt
 
-```{r}
 
+```{r}
 # ============================================================
 # Slide 5 | Variable comprometida
-# Heatmap mixto: terminal_risk_score por categorias y ventana
-# Solo ventanas disponibles para la decision de julio 2025
-# Construccion + guardado
+# Heatmap mixto: terminal_risk_score por categorías y ventana
+# Color por ventana + intensidad por magnitud
 # ============================================================
 
 dt_grafico_mixto_terminal <- copy(
@@ -2158,7 +2189,6 @@ dt_grafico_mixto_terminal[
   ventana_temporal_chr := as.character(ventana_temporal)
 ]
 
-# Solo ventanas disponibles al momento de decidir julio 2025
 dt_grafico_mixto_terminal <- dt_grafico_mixto_terminal[
   ventana_temporal_chr %in% c(
     "T0_1_12",
@@ -2171,7 +2201,7 @@ dt_grafico_mixto_terminal[
   ,
   ventana_label := fcase(
     ventana_temporal_chr == "T0_1_12", "T0",
-    ventana_temporal_chr == "T1_13_15", "T1 transicion",
+    ventana_temporal_chr == "T1_13_15", "T1 transición",
     ventana_temporal_chr == "T1_16_18", "Ventana operativa",
     default = ventana_temporal_chr
   )
@@ -2183,14 +2213,14 @@ dt_grafico_mixto_terminal[
     ventana_label,
     levels = c(
       "T0",
-      "T1 transicion",
+      "T1 transición",
       "Ventana operativa"
     )
   )
 ]
 
 # ------------------------------------------------------------
-# Etiquetas legibles de categorias
+# Etiquetas legibles de categorías
 # ------------------------------------------------------------
 
 dt_grafico_mixto_terminal[
@@ -2256,7 +2286,7 @@ dt_grafico_mixto_terminal[
 ]
 
 # ------------------------------------------------------------
-# Separadores entre grupos categoricos
+# Separadores entre grupos categóricos
 # ------------------------------------------------------------
 
 dt_separadores_mixto_terminal <- dt_orden_categorias_terminal[
@@ -2284,7 +2314,10 @@ dt_separadores_mixto_terminal <- dt_separadores_mixto_terminal[
 ]
 
 # ------------------------------------------------------------
-# Limite simetrico para escala divergente
+# Color por ventana, intensidad por magnitud
+# Valores cercanos a 0 quedan casi blancos.
+# Valores positivos usan el color de la ventana.
+# Valores negativos, si aparecieran, usan azul suave.
 # ------------------------------------------------------------
 
 limite_diferencia_terminal <- max(
@@ -2292,47 +2325,81 @@ limite_diferencia_terminal <- max(
   na.rm = TRUE
 )
 
+paleta_diferencia_por_ventana <- list(
+  "T0" = scales::col_numeric(
+    palette = c("#FFFFFF", "#DDE7F3"),
+    domain = c(0, limite_diferencia_terminal)
+  ),
+  "T1 transición" = scales::col_numeric(
+    palette = c("#FFFFFF", "#F2D99A"),
+    domain = c(0, limite_diferencia_terminal)
+  ),
+  "Ventana operativa" = scales::col_numeric(
+    palette = c("#FFFFFF", "#BFE7C8"),
+    domain = c(0, limite_diferencia_terminal)
+  )
+)
+
+paleta_diferencia_negativa <- scales::col_numeric(
+  palette = c("#FFFFFF", "#9EB8D7"),
+  domain = c(0, limite_diferencia_terminal)
+)
+
+dt_grafico_mixto_terminal[
+  ,
+  color_celda := mapply(
+    function(ventana_i, diferencia_i) {
+      
+      if (is.na(diferencia_i)) {
+        return("#FFFFFF")
+      }
+      
+      if (diferencia_i < 0) {
+        return(paleta_diferencia_negativa(abs(diferencia_i)))
+      }
+      
+      paleta_diferencia_por_ventana[[as.character(ventana_i)]](diferencia_i)
+    },
+    ventana_label,
+    diferencia_mediana_fraude_legitima
+  )
+]
+
 # ------------------------------------------------------------
-# Grafico
+# Gráfico
 # ------------------------------------------------------------
 
 grafico_mixto_terminal_slide <- ggplot(
   dt_grafico_mixto_terminal,
   aes(
     x = ventana_label,
-    y = etiqueta_categoria,
-    fill = diferencia_mediana_fraude_legitima
+    y = etiqueta_categoria
   )
 ) +
   geom_tile(
-    color = "white",
-    linewidth = 0.9
+    aes(fill = color_celda),
+    color = "#E5E7EB",
+    linewidth = 1.15
   ) +
   geom_hline(
     data = dt_separadores_mixto_terminal,
     aes(yintercept = y_intercept),
     inherit.aes = FALSE,
-    color = "grey25",
-    linewidth = 0.7
+    color = "#2B2B2B",
+    linewidth = 0.95
   ) +
   geom_text(
-    aes(
-      label = sprintf("%.2f", diferencia_mediana_fraude_legitima)
-    ),
-    size = 4.1,
+    aes(label = sprintf("%.2f", diferencia_mediana_fraude_legitima)),
+    size = 7.2,
     fontface = "bold",
-    color = "grey10"
+    color = "#111111"
   ) +
-  scale_fill_gradient2(
-    low = "#1567A3",
-    mid = "white",
-    high = "#BD164F",
-    midpoint = 0,
-    limits = c(
-      -limite_diferencia_terminal,
-      limite_diferencia_terminal
-    ),
-    name = "Dif. mediana\nfraude - legitima"
+  scale_fill_identity() +
+  scale_x_discrete(
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_y_discrete(
+    expand = expansion(mult = c(0.01, 0.01))
   ) +
   labs(
     title = "Cambio de régimen",
@@ -2341,21 +2408,46 @@ grafico_mixto_terminal_slide <- ggplot(
     y = NULL,
     caption = "Valores positivos: mayor mediana de terminal_risk_score en fraudes. Operaciones etiquetadas."
   ) +
-  theme_minimal(base_size = 15) +
+  theme_minimal(base_size = 20) +
   theme(
-    plot.title = element_text(face = "bold", size = 22),
-    plot.subtitle = element_text(size = 14, color = "grey30"),
-    plot.caption = element_text(size = 11, color = "grey35"),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
     
-    axis.text.x = element_text(size = 13, face = "bold"),
-    axis.text.y = element_text(size = 11.5, face = "bold"),
+    plot.title = element_text(
+      face = "bold",
+      size = 36,
+      color = "#000000",
+      hjust = 0
+    ),
+    plot.subtitle = element_text(
+      size = 22,
+      color = "#4D4D4D",
+      hjust = 0,
+      margin = margin(b = 22)
+    ),
+    plot.caption = element_text(
+      size = 15,
+      color = "#5A5A5A",
+      hjust = 0.5,
+      margin = margin(t = 16)
+    ),
     
-    legend.position = "right",
-    legend.title = element_text(size = 11, face = "bold"),
-    legend.text = element_text(size = 10),
+    axis.text.x = element_text(
+      size = 22,
+      face = "bold",
+      color = "#4D4D4D",
+      margin = margin(t = 14)
+    ),
+    axis.text.y = element_text(
+      size = 18.5,
+      face = "bold",
+      color = "#4D4D4D",
+      margin = margin(r = 16)
+    ),
     
     panel.grid = element_blank(),
-    plot.margin = margin(12, 14, 12, 12)
+    legend.position = "none",
+    plot.margin = margin(28, 54, 26, 34)
   )
 
 # ------------------------------------------------------------
@@ -2370,9 +2462,11 @@ archivo_grafico_mixto_terminal_slide <- file.path(
 ggsave(
   filename = archivo_grafico_mixto_terminal_slide,
   plot = grafico_mixto_terminal_slide,
-  width = 12,
-  height = 7,
-  dpi = 300
+  width = 17,
+  height = 9.2,
+  dpi = 300,
+  bg = "white",
+  limitsize = FALSE
 )
 
 data.table(
@@ -2386,7 +2480,6 @@ data.table(
 )
 
 grafico_mixto_terminal_slide
-
 ```
 
 
