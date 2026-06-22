@@ -3,6 +3,7 @@
 .Ruserdata/
 .Rproj.user/
 .DS_Store
+.idea/
 Thumbs.db
 *.html
 *.pdf
