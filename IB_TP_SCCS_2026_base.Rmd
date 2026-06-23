@@ -16,13 +16,11 @@ header-includes:
 ---
 
 ```{r}
-# 1. Definís la lista de paquetes que necesitás
+
 paquetes <- c("tidyverse", "jsonlite", "ggplot2", "posterior", "nanoparquet", "arrow")
 
-# 2. Identificás cuáles NO están instalados en el sistema
 paquetes_faltantes <- paquetes[!(paquetes %in% installed.packages()[, "Package"])]
 
-# 3. Si hay alguno que falta, lo instala
 if (length(paquetes_faltantes) > 0) {
   install.packages(paquetes_faltantes)
 } else {
@@ -67,7 +65,7 @@ col_celeste <- unname(pal["blue"])
 col_verde   <- unname(pal["green"])
 col_gris    <- "#95A5A6"
 
-rm(pal)
+#rm(pal)
 ```
 
 
@@ -249,12 +247,15 @@ paleta_modelos
 
 ```{r}
 # ============================================================
-# Tabla de modelos y variables incluidas
+# Matriz features x modelos
+# Formato vertical
 # Sin titulo, subtitulo ni nota
+# Modelos como columnas: M1, M2, M3, M4, M5
+# Features como renglones
 # Incluye visualizacion + guardado HTML y PNG
 # ============================================================
 
-dt_tabla_modelos_variables <- data.table(
+dt_modelos_variables_base <- data.table(
   modelo = c("M1", "M2", "M3", "M4", "M5"),
   modelo_id = c(
     "M1_logistica",
@@ -263,31 +264,27 @@ dt_tabla_modelos_variables <- data.table(
     "M4_gbm_moderado",
     "M5_naive_bayes"
   ),
-  nombre = c(
-    "Regresion logistica lineal",
-    "Random forest",
-    "Gradient boosting completo",
-    "Gradient boosting moderado",
-    "Naive Bayes"
-  ),
-  variables = c(
-    "monto_log; canal; dispositivo",
-    "monto_log; canal; dispositivo; hora_bin; secuencia_24h",
-    "monto_log; canal; dispositivo; hora_bin; secuencia_24h; terminal_risk_score",
-    "monto_log; canal; dispositivo; hora_bin; secuencia_24h",
-    "monto_log; secuencia_24h"
-  )
+  monto_log = c(TRUE, TRUE, TRUE, TRUE, TRUE),
+  canal = c(TRUE, TRUE, TRUE, TRUE, FALSE),
+  dispositivo = c(TRUE, TRUE, TRUE, TRUE, FALSE),
+  hora_bin = c(FALSE, TRUE, TRUE, TRUE, FALSE),
+  secuencia_24h = c(FALSE, TRUE, TRUE, TRUE, TRUE),
+  terminal_risk_score = c(FALSE, FALSE, TRUE, FALSE, FALSE)
 )
 
-dt_tabla_modelos_variables[
+dt_modelos_variables_base[
   ,
   color_modelo := paleta_modelos[modelo_id]
 ]
 
-dt_tabla_modelos_variables[
-  ,
-  modelo_label := paste0(modelo, " - ", nombre)
-]
+variables_modelos <- c(
+  "monto_log",
+  "canal",
+  "dispositivo",
+  "hora_bin",
+  "secuencia_24h",
+  "terminal_risk_score"
+)
 
 escapar_html <- function(x) {
   x <- as.character(x)
@@ -297,98 +294,149 @@ escapar_html <- function(x) {
   x
 }
 
-html_tabla_modelos_variables <- '
+html_matriz_features_modelos <- '
 <style>
-.contenedor-tabla-modelos {
-  width: 1500px;
-  max-width: 1500px;
+.contenedor-matriz-features {
+  width: 760px;
+  max-width: 760px;
   font-family: Arial, sans-serif;
   padding: 0;
   background-color: #FFFFFF;
 }
 
-.tabla-modelos {
+.matriz-features {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   font-family: Arial, sans-serif;
-  border-bottom: 1px solid #E5E7EB;
+  border: 2px solid #D1D5DB;
 }
 
-.tabla-modelos col.modelo {
-  width: 31%;
-}
-
-.tabla-modelos col.variables {
-  width: 69%;
-}
-
-.tabla-modelos th {
+.matriz-features th {
   background-color: #F1F3F6;
   color: #111111;
-  font-weight: 800;
+  font-weight: 900;
+  text-align: center;
+  padding: 18px 6px;
+  border: 2px solid #D1D5DB;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.matriz-features th.feature-header {
+  width: 42%;
   text-align: left;
-  padding: 18px 18px;
-  border-bottom: 2px solid #CBD5E1;
+  padding-left: 16px;
+}
+
+.matriz-features th.modelo-header {
+  width: 11.6%;
+  color: white;
   font-size: 28px;
 }
 
-.tabla-modelos td {
-  padding: 24px 20px;
-  border-bottom: 1px solid #E5E7EB;
+.matriz-features td {
+  border: 2px solid #D1D5DB;
+  text-align: center;
   vertical-align: middle;
+  padding: 23px 5px;
+}
+
+.matriz-features td.feature {
+  background-color: #F8FAFC;
   color: #111111;
+  font-weight: 900;
+  font-size: 24px;
+  text-align: left;
+  padding-left: 16px;
+  line-height: 1.05;
+  word-break: break-word;
 }
 
-.tabla-modelos td.modelo {
+.matriz-features td.incluye {
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
   color: white;
-  font-weight: 800;
-  font-size: 27px;
-  line-height: 1.15;
 }
 
-.tabla-modelos td.variables {
+.matriz-features td.no-incluye {
   background-color: #FFFFFF;
-  line-height: 1.28;
-  font-size: 27px;
-  font-weight: 500;
+  color: #CBD5E1;
+  font-size: 28px;
+  font-weight: 700;
 }
 </style>
 
-<div class="contenedor-tabla-modelos">
-  <table class="tabla-modelos">
-    <colgroup>
-      <col class="modelo">
-      <col class="variables">
-    </colgroup>
+<div class="contenedor-matriz-features">
+  <table class="matriz-features">
     <thead>
       <tr>
-        <th>Modelo</th>
-        <th>Variables que incluye</th>
+        <th class="feature-header">Feature</th>
+'
+
+for (i in seq_len(nrow(dt_modelos_variables_base))) {
+  
+  html_matriz_features_modelos <- paste0(
+    html_matriz_features_modelos,
+    '<th class="modelo-header" style="background-color:',
+    dt_modelos_variables_base$color_modelo[i],
+    ';">',
+    escapar_html(dt_modelos_variables_base$modelo[i]),
+    '</th>'
+  )
+}
+
+html_matriz_features_modelos <- paste0(
+  html_matriz_features_modelos,
+  '
       </tr>
     </thead>
     <tbody>
 '
+)
 
-for (i in seq_len(nrow(dt_tabla_modelos_variables))) {
+for (variable_i in variables_modelos) {
   
-  html_tabla_modelos_variables <- paste0(
-    html_tabla_modelos_variables,
+  html_matriz_features_modelos <- paste0(
+    html_matriz_features_modelos,
     '<tr>',
-    '<td class="modelo" style="background-color:',
-    dt_tabla_modelos_variables$color_modelo[i],
-    ';">',
-    escapar_html(dt_tabla_modelos_variables$modelo_label[i]),
-    '</td>',
-    '<td class="variables">',
-    escapar_html(dt_tabla_modelos_variables$variables[i]),
-    '</td>',
+    '<td class="feature">',
+    escapar_html(variable_i),
+    '</td>'
+  )
+  
+  for (i in seq_len(nrow(dt_modelos_variables_base))) {
+    
+    incluye_variable_i <- dt_modelos_variables_base[[variable_i]][i]
+    color_modelo_i <- dt_modelos_variables_base$color_modelo[i]
+    
+    if (isTRUE(incluye_variable_i)) {
+      
+      html_matriz_features_modelos <- paste0(
+        html_matriz_features_modelos,
+        '<td class="incluye" style="background-color:',
+        color_modelo_i,
+        ';">X</td>'
+      )
+      
+    } else {
+      
+      html_matriz_features_modelos <- paste0(
+        html_matriz_features_modelos,
+        '<td class="no-incluye"></td>'
+      )
+    }
+  }
+  
+  html_matriz_features_modelos <- paste0(
+    html_matriz_features_modelos,
     '</tr>'
   )
 }
 
-html_tabla_modelos_variables <- paste0(
-  html_tabla_modelos_variables,
+html_matriz_features_modelos <- paste0(
+  html_matriz_features_modelos,
   '
     </tbody>
   </table>
@@ -401,54 +449,57 @@ html_tabla_modelos_variables <- paste0(
 # ------------------------------------------------------------
 
 htmltools::browsable(
-  htmltools::HTML(html_tabla_modelos_variables)
+  htmltools::HTML(html_matriz_features_modelos)
 )
 
 # ------------------------------------------------------------
 # Guardado HTML y PNG
 # ------------------------------------------------------------
 
-archivo_tabla_modelos_variables_html <- file.path(
+archivo_matriz_features_modelos_html <- file.path(
   directorio_graficos,
-  "tabla_modelos_variables.html"
+  "matriz_features_modelos_vertical.html"
 )
 
-archivo_tabla_modelos_variables_png <- file.path(
+archivo_matriz_features_modelos_png <- file.path(
   directorio_graficos,
-  "tabla_modelos_variables.png"
+  "matriz_features_modelos_vertical.png"
 )
 
 writeLines(
-  html_tabla_modelos_variables,
-  archivo_tabla_modelos_variables_html,
+  html_matriz_features_modelos,
+  archivo_matriz_features_modelos_html,
   useBytes = TRUE
 )
 
-if (!requireNamespace("webshot2", quietly = TRUE)) {
-  install.packages("webshot2")
+if (requireNamespace("webshot2", quietly = TRUE)) {
+  
+  webshot2::webshot(
+    url = paste0("file:///", normalizePath(archivo_matriz_features_modelos_html, winslash = "/")),
+    file = archivo_matriz_features_modelos_png,
+    vwidth = 820,
+    vheight = 760,
+    zoom = 2
+  )
+  
+} else {
+  
+  message("No se genero PNG porque falta webshot2.")
 }
 
-webshot2::webshot(
-  url = paste0("file:///", normalizePath(archivo_tabla_modelos_variables_html, winslash = "/")),
-  file = archivo_tabla_modelos_variables_png,
-  vwidth = 1560,
-  vheight = 520,
-  zoom = 2
-)
-
-dt_sanity_guardado_tabla_modelos_variables <- data.table(
+dt_sanity_guardado_matriz_features_modelos <- data.table(
   salida = c("HTML", "PNG"),
   archivo = c(
-    archivo_tabla_modelos_variables_html,
-    archivo_tabla_modelos_variables_png
+    archivo_matriz_features_modelos_html,
+    archivo_matriz_features_modelos_png
   ),
   existe = c(
-    file.exists(archivo_tabla_modelos_variables_html),
-    file.exists(archivo_tabla_modelos_variables_png)
+    file.exists(archivo_matriz_features_modelos_html),
+    file.exists(archivo_matriz_features_modelos_png)
   )
 )
 
-dt_sanity_guardado_tabla_modelos_variables
+dt_sanity_guardado_matriz_features_modelos
 ```
 
 
@@ -691,7 +742,7 @@ metricas_T0 <- fromJSON(ruta_metricas_T0)
 names(metricas_T0)
 length(metricas_T0)
 
-rm(ruta_metricas_T0)
+#rm(ruta_metricas_T0)
 
 ```
 
@@ -772,7 +823,7 @@ data.table(
   )
 )
 
-rm(f1_reportado_t0_m3, check_fraudes_suman, check_f1_coincide, check_f1_0842, check_conteos_suman_n, n_validacion)
+#rm(f1_reportado_t0_m3, check_fraudes_suman, check_f1_coincide, check_f1_0842, check_conteos_suman_n, n_validacion)
 
 ```
 
@@ -1018,7 +1069,7 @@ hpdi_f1_t0_m3 <- hpdi(muestras_f1_t0_m3, prob = 0.95)
 hpdi_95_inf_f1_t0_m3 = c(hpdi_f1_t0_m3[1])
 hpdi_95_sup_f1_t0_m3 = c(hpdi_f1_t0_m3[2])
 
-rm(muestras_f1_t0_m3, hpdi_f1_t0_m3, muestras_precision_t0_m3, muestras_sensibilidad_t0_m3)
+#rm(muestras_f1_t0_m3, hpdi_f1_t0_m3, muestras_precision_t0_m3, muestras_sensibilidad_t0_m3)
 ```
 
 ```{r}
@@ -1036,7 +1087,7 @@ data.table(
                      (f1_calculado_t0_m3 <= hpdi_95_sup_f1_t0_m3)
 )
 
-rm(mediana_f1_t0_m3, hpdi_95_inf_f1_t0_m3, hpdi_95_sup_f1_t0_m3, f1_calculado_t0_m3)
+#rm(mediana_f1_t0_m3, hpdi_95_inf_f1_t0_m3, hpdi_95_sup_f1_t0_m3, f1_calculado_t0_m3)
 ```
 # 4 Posteriors F1 y simulacion Monte Carlo para todos los modelos en T0
 
@@ -1267,6 +1318,275 @@ data.table(
 
 grafico_slide_1_reconstruccion_t0
 ```
+# otro grafico slide 1
+
+```{r}
+# ============================================================
+# Slide 1 | Reconstruccion T0 como densidades posteriores
+# Curvas = distribucion posterior de F1
+# Lineas punteadas = medianas posteriores
+# Segmentos negros = HPDI 95%
+# Puntos negros = F1 puntual reconstruido
+# ============================================================
+
+library(data.table)
+library(ggplot2)
+library(scales)
+
+# ------------------------------------------------------------
+# Paleta de modelos
+# Usa paleta_modelos si ya existe en la notebook
+# ------------------------------------------------------------
+
+if (!exists("paleta_modelos")) {
+  paleta_modelos <- c(
+    "M1_logistica" = "#F8766D",
+    "M2_random_forest" = "#A3A500",
+    "M3_gbm_completo" = "#00BF7D",
+    "M4_gbm_moderado" = "#00B0F6",
+    "M5_naive_bayes" = "#E76BF3"
+  )
+}
+
+# ------------------------------------------------------------
+# Funcion: resumen + muestras posteriores de F1
+# ------------------------------------------------------------
+
+analisis_modelo_T0_con_muestras <- function(nombre_modelo, metricas_T0, S = 50000) {
+  
+  m_T0 <- metricas_T0[[nombre_modelo]]$T0_validacion
+  
+  TP <- m_T0$TP
+  FP <- m_T0$FP
+  FN <- m_T0$FN
+  
+  f1_puntual <- 2 * TP / (2 * TP + FP + FN)
+  
+  alpha_precision    <- 1 + TP
+  beta_precision     <- 1 + FP
+  alpha_sensibilidad <- 1 + TP
+  beta_sensibilidad  <- 1 + FN
+  
+  muestras_p <- rbeta(S, alpha_precision, beta_precision)
+  muestras_r <- rbeta(S, alpha_sensibilidad, beta_sensibilidad)
+  
+  muestras_f1 <- 2 * muestras_p * muestras_r / (muestras_p + muestras_r)
+  
+  hpdi_f1 <- hpdi(muestras_f1, prob = 0.95)
+  
+  resumen <- data.table(
+    modelo = nombre_modelo,
+    TP = TP,
+    FP = FP,
+    FN = FN,
+    f1_puntual = f1_puntual,
+    mediana_F1 = median(muestras_f1),
+    hpdi_95_inf = hpdi_f1[1],
+    hpdi_95_sup = hpdi_f1[2],
+    HPDI_95 = sprintf("[%.4f, %.4f]", hpdi_f1[1], hpdi_f1[2]),
+    conteos = sprintf("TP=%d · FP=%d · FN=%d", TP, FP, FN),
+    cubre_f1_puntual = hpdi_f1[1] <= f1_puntual & f1_puntual <= hpdi_f1[2]
+  )
+  
+  muestras <- data.table(
+    modelo = nombre_modelo,
+    F1 = muestras_f1
+  )
+  
+  list(
+    resumen = resumen,
+    muestras = muestras
+  )
+}
+
+# ------------------------------------------------------------
+# Reconstruccion posterior T0
+# ------------------------------------------------------------
+
+set.seed(20260424)
+
+lista_resultados_paso4 <- lapply(
+  nombres_modelos,
+  analisis_modelo_T0_con_muestras,
+  metricas_T0 = metricas_T0
+)
+
+dt_reporte_paso4 <- rbindlist(
+  lapply(lista_resultados_paso4, `[[`, "resumen")
+)
+
+dt_muestras_paso4 <- rbindlist(
+  lapply(lista_resultados_paso4, `[[`, "muestras")
+)
+
+# ------------------------------------------------------------
+# Orden visual y posiciones para HPDI
+# ------------------------------------------------------------
+
+orden_modelos_slide_1 <- dt_reporte_paso4[
+  order(-mediana_F1),
+  modelo
+]
+
+dt_reporte_paso4[
+  ,
+  modelo := factor(modelo, levels = orden_modelos_slide_1)
+]
+
+dt_muestras_paso4[
+  ,
+  modelo := factor(modelo, levels = orden_modelos_slide_1)
+]
+
+dt_reporte_paso4[
+  ,
+  y_hpdi := -0.55 - 0.23 * (.I - 1)
+]
+
+dt_reporte_paso4[
+  ,
+  etiqueta_modelo_hpdi := as.character(modelo)
+]
+
+# ------------------------------------------------------------
+# Grafico
+# ------------------------------------------------------------
+
+grafico_slide_1_densidades_t0 <- ggplot(
+  dt_muestras_paso4,
+  aes(
+    x = F1,
+    fill = modelo,
+    color = modelo
+  )
+) +
+  geom_density(
+    alpha = 0.24,
+    linewidth = 1.15,
+    adjust = 1.05
+  ) +
+  geom_vline(
+    data = dt_reporte_paso4,
+    aes(
+      xintercept = mediana_F1,
+      color = modelo
+    ),
+    linewidth = 0.95,
+    linetype = "dashed",
+    show.legend = FALSE
+  ) +
+  geom_segment(
+    data = dt_reporte_paso4,
+    aes(
+      x = hpdi_95_inf,
+      xend = hpdi_95_sup,
+      y = y_hpdi,
+      yend = y_hpdi
+    ),
+    inherit.aes = FALSE,
+    linewidth = 1.35,
+    color = "black"
+  ) +
+  geom_point(
+    data = dt_reporte_paso4,
+    aes(
+      x = f1_puntual,
+      y = y_hpdi
+    ),
+    inherit.aes = FALSE,
+    size = 2.8,
+    color = "black"
+  ) +
+  geom_text(
+    data = dt_reporte_paso4,
+    aes(
+      x = 0.018,
+      y = y_hpdi,
+      label = etiqueta_modelo_hpdi
+    ),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 3.7,
+    fontface = "bold",
+    color = "grey25"
+  ) +
+  scale_fill_manual(
+    values = paleta_modelos,
+    name = "Modelo"
+  ) +
+  scale_color_manual(
+    values = paleta_modelos,
+    name = "Modelo"
+  ) +
+  scale_x_continuous(
+    limits = c(0, 0.95),
+    breaks = seq(0, 0.9, 0.1),
+    labels = scales::number_format(accuracy = 0.1),
+    expand = expansion(mult = c(0.01, 0.02))
+  ) +
+  scale_y_continuous(
+    limits = c(-1.65, NA),
+    expand = expansion(mult = c(0.02, 0.06))
+  ) +
+  labs(
+    title = "Sistema auditado: M3 dominante en validacion T0",
+    subtitle = "Distribuciones posteriores de F1; lineas punteadas = medianas; segmentos negros = HPDI 95%; puntos negros = F1 puntual",
+    x = "F1 posterior en validacion T0",
+    y = "Densidad",
+    caption = "Reconstruccion bayesiana sobre precision y sensibilidad; propagacion Monte Carlo a F1."
+  ) +
+  coord_cartesian(
+    clip = "off"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", size = 22),
+    plot.subtitle = element_text(size = 13.5, color = "grey30"),
+    plot.caption = element_text(size = 11, color = "grey35"),
+    
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 17),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 13),
+    
+    panel.grid.minor = element_blank(),
+    
+    plot.margin = margin(12, 22, 12, 12)
+  )
+
+# ------------------------------------------------------------
+# Guardado
+# ------------------------------------------------------------
+
+archivo_grafico_slide_1_densidades_t0 <- file.path(
+  directorio_graficos,
+  "slide_1_reconstruccion_t0_densidades_posteriores.png"
+)
+
+ggsave(
+  filename = archivo_grafico_slide_1_densidades_t0,
+  plot = grafico_slide_1_densidades_t0,
+  width = 11.5,
+  height = 6.2,
+  dpi = 300
+)
+
+data.table(
+  salida = "PNG",
+  archivo = archivo_grafico_slide_1_densidades_t0,
+  existe = file.exists(archivo_grafico_slide_1_densidades_t0),
+  ruta_absoluta = normalizePath(
+    archivo_grafico_slide_1_densidades_t0,
+    mustWork = FALSE
+  )
+)
+
+grafico_slide_1_densidades_t0
+```
 
 # 5 Trayectoria F1/mes/modelo/18M
 
@@ -1443,6 +1763,10 @@ Una posterior acumulativa podría seguir creyendo demasiado en el modelo porque 
 Paradoja: el peligro de confiar en agregados históricos cuando el régimen cambió.
 
 ```{r}
+
+```
+
+```{r}
 # Gráfico de trayectoria mensual con HPDI 95 por ciento
 
 grafico_f1_mensual <- ggplot(
@@ -1500,8 +1824,273 @@ file.exists(archivo_grafico_f1_mensual)
 
 grafico_f1_mensual
 
-rm(S_mensual, grafico_f1_mensual, archivo_grafico_f1_mensual, dt_resumen_f1_mensual)
+#rm(S_mensual, grafico_f1_mensual, archivo_grafico_f1_mensual, dt_resumen_f1_mensual)
 
+```
+```{r}
+# ============================================================
+# Gráfico de trayectoria mensual con HPDI 95 por ciento
+# ============================================================
+
+grafico_f1_mensual <- ggplot(
+  dt_resumen_f1_mensual,
+  aes(x = mes, y = mediana_f1, color = modelo, fill = modelo)
+) +
+  geom_ribbon(
+    aes(ymin = hpdi_95_inf, ymax = hpdi_95_sup),
+    alpha = 0.12,
+    color = NA
+  ) +
+  geom_line(linewidth = 1.15) +
+  geom_point(size = 2.2) +
+  
+  geom_vline(xintercept = 12, linetype = "dashed", color = "gray35", linewidth = 0.8) +
+  geom_vline(xintercept = 13, linetype = "dashed", color = "gray35", linewidth = 0.8) +
+  geom_vline(xintercept = 16, linetype = "dashed", color = "gray35", linewidth = 0.8) +
+  
+  annotate(
+    "text",
+    x = 12,
+    y = 0.91,
+    label = "fin T0",
+    angle = 90,
+    vjust = -0.45,
+    size = 5.2,
+    fontface = "bold",
+    color = "gray25"
+  ) +
+  annotate(
+    "text",
+    x = 13,
+    y = 0.91,
+    label = "inicio T1",
+    angle = 90,
+    vjust = -0.45,
+    size = 5.2,
+    fontface = "bold",
+    color = "gray25"
+  ) +
+  annotate(
+    "text",
+    x = 16,
+    y = 0.82,
+    label = "ventana operativa",
+    angle = 90,
+    vjust = -0.45,
+    size = 5.2,
+    fontface = "bold",
+    color = "gray25"
+  ) +
+  
+  scale_x_continuous(
+    breaks = 1:18
+  ) +
+  scale_y_continuous(
+    labels = scales::percent,
+    limits = c(0, 1)
+  ) +
+  scale_color_manual(
+    values = paleta_modelos
+  ) +
+  scale_fill_manual(
+    values = paleta_modelos
+  ) +
+  guides(
+    fill = "none",
+    color = guide_legend(
+      nrow = 1,
+      byrow = TRUE,
+      override.aes = list(linewidth = 1.8, size = 3.5)
+    )
+  ) +
+  labs(
+    title = "Trayectoria mensual de F1 posterior independiente por modelo",
+    subtitle = "Mediana posterior con HPDI 95 por ciento. Meses 1 a 18",
+    x = "Mes",
+    y = "F1 posterior",
+    color = "Modelo"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 25,
+      margin = margin(b = 8)
+    ),
+    plot.subtitle = element_text(
+      size = 18,
+      color = "gray25",
+      margin = margin(b = 14)
+    ),
+    
+    axis.title.x = element_text(size = 19, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 19, margin = margin(r = 10)),
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    
+    legend.position = "bottom",
+    legend.title = element_text(size = 18, face = "bold"),
+    legend.text = element_text(size = 16),
+    legend.key.width = unit(1.6, "cm"),
+    legend.spacing.x = unit(0.35, "cm"),
+    
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(14, 20, 14, 14)
+  )
+
+# ============================================================
+# Guardado del gráfico de trayectoria mensual de F1
+# ============================================================
+
+archivo_grafico_f1_mensual <- file.path(
+  directorio_graficos,
+  "paso_5_trayectoria_mensual_f1_posterior_modelos_hpdi_95.png"
+)
+
+ggsave(
+  filename = archivo_grafico_f1_mensual,
+  plot = grafico_f1_mensual,
+  width = 12.8,
+  height = 7.4,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_f1_mensual)
+
+grafico_f1_mensual
+```
+```{r}
+
+# ============================================================
+# Gráfico de trayectoria mensual con HPDI 95 por ciento
+# ============================================================
+
+grafico_f1_mensual <- ggplot(
+  dt_resumen_f1_mensual,
+  aes(x = mes, y = mediana_f1, color = modelo, fill = modelo)
+) +
+  geom_ribbon(
+    aes(ymin = hpdi_95_inf, ymax = hpdi_95_sup),
+    alpha = 0.12,
+    color = NA
+  ) +
+  geom_line(linewidth = 1.15) +
+  geom_point(size = 2.2) +
+  
+  geom_vline(xintercept = 12, linetype = "dashed", color = "gray35", linewidth = 0.8) +
+  geom_vline(xintercept = 13, linetype = "dashed", color = "gray35", linewidth = 0.8) +
+  geom_vline(xintercept = 16, linetype = "dashed", color = "gray35", linewidth = 0.8) +
+  
+  annotate(
+    "text",
+    x = 12,
+    y = 0.91,
+    label = "fin T0",
+    angle = 90,
+    vjust = -0.45,
+    size = 5.2,
+    fontface = "bold",
+    color = "gray25"
+  ) +
+  annotate(
+    "text",
+    x = 13,
+    y = 0.91,
+    label = "inicio T1",
+    angle = 90,
+    vjust = -0.45,
+    size = 5.2,
+    fontface = "bold",
+    color = "gray25"
+  ) +
+  annotate(
+    "text",
+    x = 16,
+    y = 0.82,
+    label = "ventana operativa",
+    angle = 90,
+    vjust = -0.45,
+    size = 5.2,
+    fontface = "bold",
+    color = "gray25"
+  ) +
+  
+  scale_x_continuous(
+    breaks = 1:18
+  ) +
+  scale_y_continuous(
+    labels = scales::percent,
+    limits = c(0, 1)
+  ) +
+  scale_color_manual(
+    values = paleta_modelos
+  ) +
+  scale_fill_manual(
+    values = paleta_modelos
+  ) +
+  guides(
+    fill = "none",
+    color = guide_legend(
+      nrow = 1,
+      byrow = TRUE,
+      override.aes = list(linewidth = 1.8, size = 3.5)
+    )
+  ) +
+  labs(
+   # title = "Trayectoria mensual de F1 posterior independiente por modelo",
+    subtitle = "Mediana posterior con HPDI 95 por ciento. Meses 1 a 18",
+    x = "Mes",
+    y = "F1 posterior",
+    color = "Modelo"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 25,
+      margin = margin(b = 8)
+    ),
+    plot.subtitle = element_text(
+      size = 18,
+      color = "gray25",
+      margin = margin(b = 14)
+    ),
+    
+    axis.title.x = element_text(size = 19, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 19, margin = margin(r = 10)),
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    
+    legend.position = "bottom",
+    legend.title = element_text(size = 18, face = "bold"),
+    legend.text = element_text(size = 16),
+    legend.key.width = unit(1.3, "cm"),
+    legend.spacing.x = unit(0.35, "cm"),
+    
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(14, 20, 14, 14)
+  )
+
+# ============================================================
+# Guardado del gráfico de trayectoria mensual de F1
+# ============================================================
+
+archivo_grafico_f1_mensual <- file.path(
+  directorio_graficos,
+  "paso_5_trayectoria_mensual_f1_posterior_modelos_hpdi_95.png"
+)
+
+ggsave(
+  filename = archivo_grafico_f1_mensual,
+  plot = grafico_f1_mensual,
+  width = 12.8,
+  height = 7.4,
+  dpi = 300
+)
+
+file.exists(archivo_grafico_f1_mensual)
+
+grafico_f1_mensual
 ```
 
 # 5bis Trayectoria acum posterior
@@ -1867,7 +2456,7 @@ file.exists(archivo_grafico_forest_f1_ventana_operativa)
 
 grafico_forest_f1_ventana_operativa
 
-rm(archivo_grafico_forest_f1_ventana_operativa, grafico_forest_f1_ventana_operativa, n_fraude)
+#rm(archivo_grafico_forest_f1_ventana_operativa, grafico_forest_f1_ventana_operativa, n_fraude)
 ```
 # Tabla F1 por modelo × ventana 
 (T0, T1 entero, ventana operativa), mediana posterior y HPDI 95 %.
@@ -2080,8 +2669,11 @@ dt_tabla_final_f1_modelo_ventana[
 
 
 ```{r results='asis'}
-
+# ============================================================
 # Tabla HTML final por modelo y ventana
+# Sin titulo/caption visible
+# Nombres de modelos agrandados
+# ============================================================
 
 decimales_f1_tabla <- 5
 
@@ -2108,10 +2700,7 @@ dt_tabla_final_f1_presentacion[
   )
 ]
 
-
-
 # Etiquetas legibles de ventanas sin caracteres especiales
-
 dt_tabla_final_f1_presentacion[
   ,
   ventana_label := fifelse(
@@ -2129,10 +2718,7 @@ dt_tabla_final_f1_presentacion[
   )
 ]
 
-
-
 # Orden conceptual de ventanas
-
 dt_tabla_final_f1_presentacion[
   ,
   ventana_label := factor(
@@ -2183,18 +2769,13 @@ dt_sanity_tabla_final_f1_presentacion <- data.table(
         "cubre_f1_puntual"
       ) %in% names(dt_tabla_final_f1_presentacion)
     ),
-    # all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
-    #   all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
-    #   all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
     all(!is.na(dt_tabla_final_f1_presentacion$ventana_label)) &
-  all(!is.na(dt_tabla_final_f1_presentacion$modelo_label)) &
-  all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
-  all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
-  all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
+      all(!is.na(dt_tabla_final_f1_presentacion$modelo_label)) &
+      all(!is.na(dt_tabla_final_f1_presentacion$f1_puntual)) &
+      all(!is.na(dt_tabla_final_f1_presentacion$mediana_f1)) &
+      all(!is.na(dt_tabla_final_f1_presentacion$HPDI_95))
   )
 )
-
-
 
 # Funcion auxiliar para escapar texto HTML
 escapar_html <- function(x) {
@@ -2220,23 +2801,10 @@ html_tabla_final <- '
   table-layout: fixed;
   font-family: Arial, sans-serif;
   font-size: 18px;
-  margin-top: 12px;
+  margin-top: 0;
   margin-bottom: 18px;
 }
 
-.tabla-f1 caption {
-  caption-side: top;
-  text-align: left;
-  font-size: 22px;
-  font-weight: 700;
-  padding-bottom: 4px;
-  color: #222222;
-}
-.tabla-f1 .subtitulo {
-  font-size: 16px;
-  font-weight: 400;
-  color: #555555;
-}
 .tabla-f1 th {
   background-color: #F2F4F7;
   color: #222222;
@@ -2245,42 +2813,51 @@ html_tabla_final <- '
   border-bottom: 2px solid #C9D1D9;
   padding: 8px;
 }
+
 .tabla-f1 td {
   border-bottom: 1px solid #E5E7EB;
   padding: 7px 8px;
   text-align: center;
 }
+
 .tabla-f1 td.periodo {
   text-align: left;
   font-weight: 600;
 }
+
 .tabla-f1 tr.modelo-grupo td {
   color: white;
-  font-weight: 700;
-  font-size: 18px;
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1.15;
   text-align: left;
-  padding: 9px 10px;
+  padding: 15px 14px;
   border-bottom: 0;
 }
+
 .tabla-f1 tr.t0 {
   background-color: #FAFAFA;
 }
+
 .tabla-f1 tr.t1 {
   background-color: #FFF8E6;
 }
+
 .tabla-f1 tr.operativa {
   background-color: #EEF8EE;
 }
+
 .tabla-f1 td.mediana {
   font-weight: 700;
 }
-# .tabla-f1 .nota {
-#   font-size: 12px;
-#   color: #555555;
-#   text-align: left;
-#   padding-top: 10px;
-#   border-bottom: 0;
-# }
+
+.tabla-f1 .nota {
+  font-size: 12px;
+  color: #555555;
+  text-align: left;
+  padding-top: 10px;
+  border-bottom: 0;
+}
 </style>
 
 <table class="tabla-f1">
@@ -2293,11 +2870,14 @@ html_tabla_final <- '
   <col style="width: 8%;">
   <col style="width: 8%;">
 </colgroup>
-<caption>
 
+<!--
+<caption>
 F1 posterior por modelo y ventana de evaluacion<br>
 <span class="subtitulo">Mediana posterior e intervalo HPDI 95%. Conteos agregados por ventana.</span>
 </caption>
+-->
+
 <thead>
 <tr>
   <th>Periodo</th>
@@ -2333,7 +2913,7 @@ for (modelo_i in nombres_modelos) {
     ventana_i <- as.character(dt_modelo_i$ventana_label[fila_i])
     
     clase_ventana_i <- fifelse(
-      ventana_i == "T0 - meses 1 a 12", "t0",
+      ventana_i == "T0 - validacion agregada", "t0",
       fifelse(
         ventana_i == "T1 entero - meses 13 a 18", "t1",
         "operativa"
@@ -2362,7 +2942,6 @@ html_tabla_final <- paste0(
 <tr>
 <td colspan="7" class="nota">
 Nota: T0 corresponde a los datos reportados en metricas_T0_validacion.json. T1 entero y ventana operativa se agregan desde metricas_temporales.csv.
-
 </td>
 </tr>
 </tbody>
@@ -2371,10 +2950,10 @@ Nota: T0 corresponde a los datos reportados en metricas_T0_validacion.json. T1 e
 )
 
 cat(html_tabla_final)
-```
 
-```{r}
+# ============================================================
 # Guardado de tabla HTML y PNG en directorio de graficos
+# ============================================================
 
 archivo_tabla_f1_html <- file.path(
   directorio_graficos,
@@ -2402,7 +2981,6 @@ body {
   width: 1150px;
   max-width: 1150px;
 }
-
 </style>
 </head>
 <body>
@@ -2433,7 +3011,6 @@ if (webshot2_disponible) {
     vheight = 900,
     zoom = 2
   )
-  
   
 } else {
   
@@ -2471,6 +3048,8 @@ dt_sanity_guardado_tabla_f1
 # ============================================================
 # Slide 3 | Tabla compacta modelo x ventana
 # Construccion + guardado en una sola celda
+# Sin titulo/caption visible
+# Nombres de modelos agrandados
 # ============================================================
 
 decimales_f1_tabla_slide <- 3
@@ -2481,7 +3060,7 @@ dt_tabla_slide_3 <- copy(dt_tabla_final_f1_modelo_ventana)
 dt_tabla_slide_3[
   ,
   modelo_label := fifelse(
-    modelo == "M1_logistica", "M1 - Regresion logistica",
+    modelo == "M1_logistica", "M1 - Regresión logística",
     fifelse(
       modelo == "M2_random_forest", "M2 - Random forest",
       fifelse(
@@ -2574,9 +3153,11 @@ html_tabla_slide_3 <- '
   table-layout: fixed;
   font-family: Arial, sans-serif;
   font-size: 15px;
-  margin-top: 8px;
+  margin-top: 0;
   margin-bottom: 10px;
 }
+
+/*
 .tabla-slide-3 caption {
   caption-side: top;
   text-align: left;
@@ -2585,11 +3166,14 @@ html_tabla_slide_3 <- '
   padding-bottom: 4px;
   color: #222222;
 }
+
 .tabla-slide-3 .subtitulo {
   font-size: 15px;
   font-weight: 400;
   color: #555555;
 }
+*/
+
 .tabla-slide-3 th {
   background-color: #F2F4F7;
   color: #222222;
@@ -2598,32 +3182,42 @@ html_tabla_slide_3 <- '
   border-bottom: 2px solid #C9D1D9;
   padding: 12px 10px;
 }
+
 .tabla-slide-3 td {
   border-bottom: 1px solid #E5E7EB;
   padding: 12px 10px;
   text-align: center;
   vertical-align: middle;
 }
+
 .tabla-slide-3 td.modelo {
   text-align: left;
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 25px;
+  line-height: 1.08;
   color: white;
   border-bottom: 1px solid white;
+  padding: 16px 14px;
 }
+
 .tabla-slide-3 td.celda-f1 {
   background-color: #FAFAFA;
 }
+
 .tabla-slide-3 td.celda-f1.t1 {
   background-color: #FFF8E6;
 }
+
 .tabla-slide-3 td.celda-f1.operativa {
   background-color: #EEF8EE;
 }
+
 .tabla-slide-3 td.mejor {
   outline: 3px solid #222222;
   outline-offset: -3px;
   background-color: #EAF4FF;
 }
+
 .tabla-slide-3 .valor-f1 {
   display: block;
   font-size: 23px;
@@ -2631,12 +3225,14 @@ html_tabla_slide_3 <- '
   color: #111111;
   line-height: 1.05;
 }
+
 .tabla-slide-3 .hpdi {
   display: block;
   font-size: 12px;
   color: #555555;
   margin-top: 4px;
 }
+
 .tabla-slide-3 .nota {
   font-size: 12px;
   color: #555555;
@@ -2644,6 +3240,7 @@ html_tabla_slide_3 <- '
   padding-top: 10px;
   border-bottom: 0;
 }
+
 .tabla-slide-3 .leyenda {
   font-size: 12px;
   color: #333333;
@@ -2653,15 +3250,19 @@ html_tabla_slide_3 <- '
 
 <table class="tabla-slide-3">
 <colgroup>
-  <col style="width: 28%;">
-  <col style="width: 24%;">
-  <col style="width: 24%;">
-  <col style="width: 24%;">
+  <col style="width: 34%;">
+  <col style="width: 22%;">
+  <col style="width: 22%;">
+  <col style="width: 22%;">
 </colgroup>
+
+<!--
 <caption>
 Dónde decidir: T0, T1 entero o ventana operativa<br>
 <span class="subtitulo">Mediana posterior de F1 e intervalo HPDI 95% por modelo y ventana.</span>
 </caption>
+-->
+
 <thead>
 <tr>
   <th>Modelo</th>
@@ -2760,6 +3361,7 @@ body {
   margin: 24px;
   background-color: white;
 }
+
 .contenedor-tabla-slide-3 {
   width: 1100px;
   max-width: 1100px;
@@ -3134,7 +3736,7 @@ file.exists(archivo_grafico_matriz_dominancia_f1)
 
 grafico_matriz_dominancia_f1
 
-rm(archivo_grafico_matriz_dominancia_f1, grafico_matriz_dominancia_f1, matriz_dominancia_f1, modelo_i, modelo_j, orden_modelos_dominancia, dt_metricas_temporales_1_18, dt_muestras_f1_dominancia_ancho)
+#rm(archivo_grafico_matriz_dominancia_f1, grafico_matriz_dominancia_f1, matriz_dominancia_f1, modelo_i, modelo_j, orden_modelos_dominancia, dt_metricas_temporales_1_18, dt_muestras_f1_dominancia_ancho)
 
 ```
 ## matriz versión para ppt
@@ -3517,7 +4119,7 @@ grafico_kl_m4_m2_slide <- ggplot(
   ) +
   labs(
     title = "Divergencia posterior entre M4 y M2",
-    subtitle = "Ventana operativa 16-18. KL dirigida y KL simetrizada sobre muestras posteriores de F1",
+    subtitle = "Ventana operativa 16-18",
     x = "Divergencia KL",
     y = NULL
   ) +
@@ -3581,7 +4183,7 @@ dt_operaciones[is.na(flag_train), flag_train := FALSE]
 dt_operaciones[is.na(flag_val),   flag_val   := FALSE]
 dt_operaciones[is.na(flag_t1),    flag_t1    := FALSE]
 
-rm(dt_train, dt_val, dt_T1)
+#rm(dt_train, dt_val, dt_T1)
 ```
 
 Analisis de cantidad de operaciones por mes, y porcentaje de entrenamiento y validacion
@@ -3769,7 +4371,7 @@ for (col in features_continuas) {
   print(p_cont)
 }
 
-rm(dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont, 
+#rm(dt_plot_cat, dt_plot_cont, dt_long, dt_long_cont, 
    dt_balance_fraude, dt_resumen_mes, dt_resumen_mes_etiqueta,
    anotaciones, p, p_cont, col)
 
